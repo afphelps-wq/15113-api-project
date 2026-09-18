@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bulk RNA-seq Explorer</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+  <h1>Bulk RNA-seq Explorer</h1>
+  <p class="sub">Upload a count matrix, compare two groups of samples, and see which genes differ &mdash;
+     with supporting literature from PubMed.</p>
+</header>
+
+<main>
+  <!-- Step 1 ---------------------------------------------------------------->
+  <section class="card" id="step-upload">
+    <h2><span class="step">1</span> Upload your data</h2>
+    <div class="grid">
+      <label class="field">
+        <span>Count matrix <small>(CSV or TSV: genes in rows, samples in columns)</small></span>
+        <input type="file" id="counts-file" accept=".csv,.tsv,.txt">
+      </label>
+      <label class="field">
+        <span>Sample metadata <small>(CSV or TSV: one row per sample, with group columns)</small></span>
+        <input type="file" id="metadata-file" accept=".csv,.tsv,.txt">
+      </label>
+    </div>
+    <p class="hint">Counts must be raw read counts, not normalized values (TPM, FPKM or CPM).
+       Estimated counts with decimals are rounded automatically.</p>
+    <button id="upload-btn" class="primary">Load files</button>
+    <p class="hint demo">No data to hand? The repository includes
+       <code>demo_data/demo_counts.csv</code> and <code>demo_data/demo_metadata.csv</code>
+       &mdash; 60 pancreatic tumour samples from GEO series GSE205154.</p>
+  </section>
+
+  <!-- Step 2 ---------------------------------------------------------------->
+  <section class="card hidden" id="step-setup">
+    <h2><span class="step">2</span> Choose the comparison</h2>
+    <p id="dataset-summary" class="summary"></p>
+    <div class="grid">
+      <label class="field">
+        <span>Group samples by</span>
+        <select id="column-select"></select>
+      </label>
+      <label class="field">
+        <span>Adjust for batch <small>(optional)</small></span>
+        <select id="batch-select"><option value="">None</option></select>
+      </label>
+      <label class="field">
+        <span>Compare</span>
+        <select id="group-a"></select>
+      </label>
+      <label class="field">
+        <span>Against <small>(reference)</small></span>
+        <select id="group-b"></select>
+      </label>
+      <label class="field">
+        <span>Adjusted p-value below</span>
+        <input type="number" id="padj" value="0.05" min="0.000001" max="1" step="0.01">
+      </label>
+      <label class="field">
+        <span>|log<sub>2</sub> fold change| above</span>
+        <input type="number" id="lfc" value="1" min="0" step="0.5">
+      </label>
+    </div>
+    <button id="analyze-btn" class="primary">Run differential expression</button>
+    <p class="hint">Positive fold changes mean higher expression in the first group.</p>
+  </section>
+
+  <!-- Step 3 ---------------------------------------------------------------->
+  <section class="card hidden" id="step-results">
+    <h2><span class="step">3</span> Results</h2>
+    <p id="result-summary" class="summary"></p>
+    <div class="actions">
+      <a id="download-csv" class="button" download>Download full results (CSV)</a>
+      <a id="download-png" class="button" download>Download volcano plot (PNG)</a>
+    </div>
+    <img id="volcano" alt="Volcano plot of differential expression results">
+    <div class="table-wrap">
+      <table id="results-table">
+        <thead><tr><th>Gene</th><th>log<sub>2</sub>FC</th><th>Adjusted p</th>
+                   <th>Mean expression</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint">Showing up to 50 genes. The CSV contains every tested gene.</p>
+  </section>
+</main>
+
+<div id="messages"></div>
+
+<div id="busy" class="hidden">
+  <div class="spinner"></div>
+  <p id="busy-text">Working&hellip;</p>
+</div>
+
+<footer>
+  <p>Your counts and sample names stay on this machine. Only gene symbols and summary statistics are
+     sent to external services (PubMed and OpenAI) when you ask for literature context.</p>
+</footer>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

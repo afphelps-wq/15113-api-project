@@ -77,10 +77,13 @@ def parse_counts(df):
         raise ValidationError(
             "Fewer than two numeric sample columns were found. Genes should be rows and samples "
             "should be columns, with the gene ID in the first column.")
-    if annotation_cols:
+    # Gene label: preferred annotation column, falling back to the ID for blanks
+    label_col = _pick_column(annotation_cols, LABEL_COLUMNS) or id_col
+    ignored = [c for c in annotation_cols if c != label_col]
+    if ignored:
         warnings.append(
-            f"Ignored non-numeric columns: {', '.join(annotation_cols[:5])}"
-            f"{'...' if len(annotation_cols) > 5 else ''}. If any of these are samples, check that "
+            f"Ignored non-numeric columns: {', '.join(ignored[:5])}"
+            f"{'...' if len(ignored) > 5 else ''}. If any of these are samples, check that "
             "the column has only numbers (no 'NA' text).")
 
     values = df[sample_cols]
@@ -101,8 +104,6 @@ def parse_counts(df):
             warnings.append("Values are small and fractional, which suggests normalized or "
                             "log-transformed data. DESeq2 needs raw counts, so results may be wrong.")
 
-    # Gene label: preferred annotation column, falling back to the ID for blanks
-    label_col = _pick_column(annotation_cols, LABEL_COLUMNS) or id_col
     ids = df[id_col].astype(str)
     labels = df[label_col].astype("string").str.strip()
     labels = labels.mask(labels.isna() | (labels == ""), ids).astype(str)
