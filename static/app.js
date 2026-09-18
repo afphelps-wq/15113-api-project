@@ -157,11 +157,53 @@ function renderResults(data) {
   $("download-csv").href = `/api/results/${state.session}.csv?t=${cacheBuster}`;
 
   $("step-results").classList.remove("hidden");
+  $("step-pathways").classList.remove("hidden");
   $("step-interpret").classList.remove("hidden");
   $("step-results").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-/* ---------- step 4: literature + interpretation -------------------------- */
+/* ---------- step 4: pathway enrichment ----------------------------------- */
+
+$("enrich-btn").onclick = async () => {
+  clearMessages();
+  busy(true, "Asking g:Profiler which pathways are over-represented…");
+  try {
+    const data = await api("/api/enrich", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session: state.session, organism: $("organism").value }),
+    });
+    data.notes.forEach((n) => showMessage(n, "warn"));
+
+    const body = $("pathways-table").querySelector("tbody");
+    body.replaceChildren();
+    for (const term of data.terms) {
+      const tr = document.createElement("tr");
+      const link = document.createElement("a");
+      link.href = term.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = term.name;
+
+      const nameCell = document.createElement("td");
+      nameCell.append(link);
+      tr.append(nameCell);
+      tr.insertAdjacentHTML("beforeend",
+        `<td>${term.source}</td>` +
+        `<td class="num">${term.intersection_size}/${term.term_size}</td>` +
+        `<td class="num">${term.p_value.toExponential(1)}</td>` +
+        `<td><span class="tag ${term.direction}">${term.direction}</span></td>`);
+      body.append(tr);
+    }
+    $("pathways").classList.toggle("hidden", data.terms.length === 0);
+  } catch (error) {
+    showMessage(error.message);
+  } finally {
+    busy(false);
+  }
+};
+
+/* ---------- step 5: literature + interpretation -------------------------- */
 
 /* Minimal Markdown for the model's reply: headings, bullets, bold, paragraphs.
    Everything is escaped first, so model output can never inject HTML. */

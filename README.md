@@ -1,9 +1,10 @@
 # Bulk RNA-seq Explorer
 
 A web app that takes a bulk RNA-seq count matrix, compares two groups of samples, and explains the
-result. It runs the standard differential expression analysis, draws a volcano plot, then looks up
-each of the strongest genes in PubMed and asks a language model to interpret the findings using only
-the abstracts it retrieved.
+result. It runs the standard differential expression analysis, draws a volcano plot, finds the
+pathways over-represented among the significant genes, then looks up each of the strongest genes in
+PubMed and asks a language model to interpret the findings using only the pathways and abstracts it
+retrieved.
 
 The goal is to let a wet-lab researcher go from a count matrix to an annotated, literature-backed
 gene list without writing any code.
@@ -12,17 +13,21 @@ gene list without writing any code.
 
 ## How the APIs are called
 
-The app calls two public APIs with the `requests` and `openai` Python modules. For each of the top
+The app calls three public APIs with the `requests` and `openai` Python modules. For each of the top
 differentially expressed genes, [`rnaseq/ncbi.py`](rnaseq/ncbi.py) sends an **NCBI E-utilities**
 `esearch` request (`db=pubmed`, `term="<gene>"[Title/Abstract] AND (<disease term>)`, `retmax=3`,
 `sort=pub_date`, `retmode=json`) and gets back JSON containing a list of PubMed ID strings; those IDs
 are then passed to a single batched `efetch` request (`rettype=abstract`, `retmode=xml`) whose XML
-response is parsed into title, abstract, journal and year fields. Those abstracts, together with each
-gene's symbol, log2 fold change and adjusted p-value, are assembled into one text prompt in
-[`rnaseq/llm.py`](rnaseq/llm.py) and sent to the **OpenAI Responses API**
-(`model=gpt-5-mini`, `max_output_tokens=4000`, `reasoning={"effort": "low"}`), which returns a JSON
-response whose `output_text` field holds the Markdown summary displayed in the browser. Both APIs are
-called only from the Flask backend, never from the browser, so the keys are never exposed to users.
+response is parsed into title, abstract, journal and year fields. Separately,
+[`rnaseq/enrichment.py`](rnaseq/enrichment.py) POSTs the significant gene symbols as JSON to the
+**g:Profiler** `gost/profile` endpoint (`organism=hsapiens`, the tested genes as `background`,
+`sources=["GO:BP","KEGG","REAC"]`), which returns JSON describing each enriched pathway with a
+corrected p-value and term sizes. Those abstracts and pathways, together with each gene's symbol,
+log2 fold change and adjusted p-value, are assembled into one text prompt in
+[`rnaseq/llm.py`](rnaseq/llm.py) and sent to the **OpenAI Responses API** (`model=gpt-5-mini`,
+`max_output_tokens=4000`, `reasoning={"effort": "low"}`), which returns a JSON response whose
+`output_text` field holds the Markdown summary displayed in the browser. All three are called only
+from the Flask backend, never from the browser, so the API key is never exposed to users.
 
 ## API keys
 
@@ -33,6 +38,8 @@ Two keys, one required and one optional. **Never commit either one** — `.env` 
 |---|---|---|---|
 | `OPENAI_API_KEY` | Yes, for the AI summary | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | About $0.007 per analysis |
 | `NCBI_API_KEY` | No | [NCBI account settings](https://www.ncbi.nlm.nih.gov/account/settings/) | Free |
+
+g:Profiler needs no key or account at all, so pathway enrichment works out of the box.
 
 An OpenAI key needs its own credit balance: **API usage is billed separately from a ChatGPT
 subscription**, so a paid ChatGPT plan does not include it. Add a few dollars of credit under
@@ -84,7 +91,9 @@ This comparison doubles as a correctness check. Metastases should lose pancreas-
 gain liver and plasma genes, simply because of the tissue each sample was cut from — and that is
 exactly what the app reports (GCG, INS, CTRC and CPB1 down; HP, HPX, SERPINC1, F2 and AHSG up).
 Two tests in `tests/test_pipeline.py` assert this, so a regression that broke the statistics would
-fail the suite.
+fail the suite. The pathway step tells the same story independently: drug metabolism, biological
+oxidations and complement/coagulation cascades come up (liver functions), while pancreatic secretion
+and protein digestion go down.
 
 It is also a useful warning. A bulk RNA-seq comparison between samples from **different organs**
 largely measures tissue composition, not tumour biology. The interface says so, and the model is
@@ -100,15 +109,18 @@ instructed to raise it — which it does unprompted in the generated summary.
    of DESeq2, after filtering genes with too few reads to test.
 3. **Review** the ranked gene table and volcano plot; download the full results as CSV or the figure
    as PNG.
-4. **Interpret** the top genes with PubMed abstracts and an AI summary that cites the PMIDs it used.
+4. **Find pathways** over-represented among the significant genes, using g:Profiler (GO biological
+   process, KEGG and Reactome), tested against the genes the experiment actually measured.
+5. **Interpret** the top genes with PubMed abstracts and an AI summary that cites the PMIDs it used.
 
 ## Privacy
 
 Uploaded counts and sample names stay in the server process on your own machine. They are never
-written to disk and never sent to an external service. Only gene symbols, fold changes, adjusted
-p-values and the retrieved abstracts are sent to OpenAI. `build_payload()` in `rnaseq/llm.py` is the
-single place the request is assembled, and `tests/test_literature.py` asserts that sample
-identifiers and raw counts cannot appear in it.
+written to disk and never sent to an external service. PubMed and g:Profiler receive only gene
+symbols; OpenAI additionally receives fold changes, adjusted p-values, the enriched pathway names
+and the retrieved abstracts. `build_payload()` in `rnaseq/llm.py` is the single place the OpenAI
+request is assembled, and `tests/test_literature.py` asserts that sample identifiers and raw counts
+cannot appear in it.
 
 ## Limitations
 
@@ -117,8 +129,8 @@ identifiers and raw counts cannot appear in it.
   the input looks normalized, but cannot always detect it.
 - **Two groups at a time**, with an optional batch covariate. No interaction terms or multi-factor
   designs.
-- **Human-focused.** The PubMed search uses gene symbols as written, so mouse symbols work but have
-  not been tested.
+- **Human-focused.** Pathway enrichment has a human/mouse selector, and the PubMed search uses gene
+  symbols as written, so mouse data should work — but it has only been tested on human data.
 - **The AI summary is a starting point, not a result.** It reads only the abstracts retrieved for
   that run, automated PubMed searches return some irrelevant papers (short symbols like `HP` and
   `TF` collide with common abbreviations), and every claim needs checking against the linked
@@ -127,17 +139,18 @@ identifiers and raw counts cannot appear in it.
 ## Project layout
 
 ```
-app.py                  Flask routes (upload, analyze, interpret, downloads)
+app.py                  Flask routes (upload, analyze, enrich, interpret, downloads)
 rnaseq/
   io_utils.py           parsing, validation, gene labels, sample alignment
   analysis.py           gene filtering and the PyDESeq2 comparison
   plots.py              volcano plot rendered server-side as PNG
+  enrichment.py         g:Profiler pathway and GO enrichment (no key needed)
   ncbi.py               PubMed esearch/efetch client and rate limiter
   llm.py                prompt construction and the OpenAI call
 templates/, static/     single-page interface, plain JavaScript
 demo_data/              committed 60-sample subset of GSE205154
 scripts/                how the demo subset was built
-tests/                  39 tests, including a biology sanity check
+tests/                  54 tests, including a biology sanity check
 ```
 
 [`WALKTHROUGH.md`](WALKTHROUGH.md) explains how the pieces fit together and why the trickier parts

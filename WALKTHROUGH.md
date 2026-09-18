@@ -7,7 +7,7 @@ were.
 ## The shape of the project
 
 The Flask routes in `app.py` are deliberately thin. Each one validates its input, calls into the
-`rnaseq` package, and turns the result into JSON. All of the real work lives in five modules that
+`rnaseq` package, and turns the result into JSON. All of the real work lives in six modules that
 know nothing about the web:
 
 | Module | Responsibility |
@@ -15,11 +15,12 @@ know nothing about the web:
 | `rnaseq/io_utils.py` | Read and validate user files; produce clean counts and metadata |
 | `rnaseq/analysis.py` | Filter genes and run the PyDESeq2 comparison |
 | `rnaseq/plots.py` | Render the volcano plot as PNG bytes |
+| `rnaseq/enrichment.py` | Ask g:Profiler which pathways are over-represented |
 | `rnaseq/ncbi.py` | Search PubMed and parse the abstracts |
 | `rnaseq/llm.py` | Build the prompt and call OpenAI |
 
-The benefit is testability: 39 tests exercise these modules directly, with no HTTP server and no
-network. The only network calls in the whole project are in `ncbi.py` and `llm.py`.
+The benefit is testability: 54 tests exercise these modules directly, with no HTTP server and no
+network. The only network calls in the whole project are in `enrichment.py`, `ncbi.py` and `llm.py`.
 
 ## 1. Reading the files (`io_utils.py`)
 
@@ -102,7 +103,40 @@ unreadable smear. `_label_points()` walks the ranked genes and skips any whose l
 close to one already placed, measuring distance in axes-relative coordinates so the rule holds at any
 data scale.
 
-## 4. Finding the literature (`ncbi.py`)
+## 4. Finding the pathways (`enrichment.py`)
+
+A list of 2,900 significant genes is hard to read. Enrichment asks a different question: which
+biological processes appear more often in that list than chance would predict?
+
+**Up and down are queried separately.** A pathway enriched among genes that went up means something
+quite different from the same pathway going down, so merging them would destroy the signal.
+
+**The background matters more than it looks.** g:Profiler compares your gene list against a
+background set, and by default that is every annotated gene in the genome. But an experiment can
+only detect genes it actually measured, so the app sends the tested genes as a custom background:
+
+```python
+"background": background,
+"domain_scope": "custom_annotated",
+```
+
+On the demo data this is the difference between 69 "enriched" terms and 31. The larger number is
+partly an artifact of comparing against genes the experiment never had a chance to detect.
+
+**Broad terms are filtered out.** The first working version returned this as its top hit:
+
+> multicellular organismal process — 533 of 6,617 genes, p = 1.6e-34
+
+Statistically unarguable and completely useless. With thousands of significant genes, the largest GO
+categories are always "enriched". Keeping only terms with at most 500 genes, and at least 3 matches,
+replaced that with specific, interpretable biology — drug metabolism, biological oxidations and
+complement/coagulation cascades up; pancreatic secretion and protein digestion down. That reads as a
+liver-versus-pancreas tissue signature, which is exactly what these samples are.
+
+The enriched terms are also passed into the OpenAI prompt, so the summary can describe processes
+rather than reciting gene names.
+
+## 5. Finding the literature (`ncbi.py`)
 
 Two E-utilities calls per analysis cycle: one `esearch` per gene, then a **single** batched `efetch`
 for every PubMed ID found. Fetching abstracts one at a time would work, but it multiplies the request
@@ -143,7 +177,7 @@ like `<i>` for species names; reading `.text` alone truncates at the first tag.
 why and the analysis continues. The literature is a bonus feature; losing it should not lose the
 differential expression results.
 
-## 5. Asking the model (`llm.py`)
+## 6. Asking the model (`llm.py`)
 
 `build_payload()` is the single place the OpenAI request is assembled. That is a deliberate
 constraint: because every piece of outgoing text is built in one function, a test can assert that
@@ -177,7 +211,7 @@ A typical run uses about 11,600 input and 2,000 output tokens, costing roughly $
 ambiguous — it means either "out of credits" or "too many requests" — so the code inspects the error
 body and gives the right advice, without ever echoing the API key.
 
-## 6. Serving it (`app.py`)
+## 7. Serving it (`app.py`)
 
 Analyses are kept in a module-level dictionary keyed by an unguessable token from
 `secrets.token_urlsafe()`, with a lock around mutation and a cap of 8 sessions. This is the right
@@ -195,7 +229,7 @@ except RuntimeError as exc:
 The front end keeps that partial data (`Object.assign(error, body)`) and renders the source list
 anyway. A missing API key then costs the user the summary, not the literature search.
 
-## 7. The front end (`static/app.js`)
+## 8. The front end (`static/app.js`)
 
 Plain JavaScript, no framework — the interactivity is four buttons and some `fetch` calls, which does
 not justify a build step in a project meant to be read.

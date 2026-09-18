@@ -11,7 +11,7 @@ import threading
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_file, render_template
 
-from rnaseq import llm, ncbi, plots
+from rnaseq import enrichment, llm, ncbi, plots
 from rnaseq.analysis import classify, run_deseq
 from rnaseq.io_utils import (ValidationError, align_samples, groupable_columns, parse_counts,
                              parse_metadata, read_table)
@@ -121,6 +121,29 @@ def analyze():
     })
 
 
+@app.post("/api/enrich")
+def enrich():
+    """Pathway and GO enrichment for the significant genes, via g:Profiler (no key needed)."""
+    body = request.get_json(silent=True) or {}
+    session = load(body.get("session"))
+    if "table" not in session:
+        raise ValidationError("Run the analysis before looking for pathways.")
+
+    try:
+        terms, notes = enrichment.enrich(session["table"], organism=body.get("organism", "human"))
+    except enrichment.EnrichmentError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    session["pathways"] = terms
+    return jsonify({
+        "notes": notes,
+        "terms": [{"source": t.source, "id": t.term_id, "name": t.name, "p_value": t.p_value,
+                   "intersection_size": t.intersection_size, "term_size": t.term_size,
+                   "direction": t.direction, "url": t.url}
+                  for t in terms],
+    })
+
+
 @app.post("/api/interpret")
 def interpret():
     """Look up PubMed evidence for the top genes, then ask the model to interpret it.
@@ -147,6 +170,7 @@ def interpret():
             genes, f"{result.group_a} vs {result.group_b}", disease,
             n_up=int(counts.get("up", 0)), n_down=int(counts.get("down", 0)),
             n_tested=result.n_genes_tested,
+            pathway_lines=enrichment.as_prompt_lines(session.get("pathways", [])),
             api_key=(body.get("api_key") or "").strip() or None)
     except RuntimeError as exc:
         # The literature is still useful even when the model call fails, so return it either way

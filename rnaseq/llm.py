@@ -41,26 +41,29 @@ Write for a researcher who knows the biology but not the statistics. Use GitHub-
 with these sections and nothing else:
 
 ## What stands out
-Three to five bullets on the clearest patterns in the gene list.
+Three to five bullets on the clearest patterns in the gene list and, where pathway enrichment is
+provided, the biological processes those genes belong to.
 
 ## Possible interpretations
-Two to four short paragraphs, each citing PMIDs where the abstracts support the point.
+Two to four short paragraphs, each citing PMIDs where the abstracts support the point. Refer to
+enriched pathways by name where they help explain the gene list.
 
 ## Caveats
 Bullets covering tissue composition, sample size, and anything the literature did not cover.
 """
 
 
-def build_payload(evidence, comparison, disease_term, n_up, n_down, n_tested):
+def build_payload(evidence, comparison, disease_term, n_up, n_down, n_tested, pathway_lines=""):
     """Assemble the user message. This is the only text sent to OpenAI."""
     lines = [
         f"Comparison: {comparison} (positive log2 fold change = higher in the first group).",
         f"Disease/context term used for the literature search: {disease_term or 'none given'}.",
         f"{n_tested:,} genes tested; {n_up:,} significantly higher and {n_down:,} significantly "
         f"lower in the first group.",
-        "",
-        "TOP GENES AND THEIR RETRIEVED LITERATURE",
     ]
+    if pathway_lines:
+        lines += ["", "PATHWAY ENRICHMENT", pathway_lines]
+    lines += ["", "TOP GENES AND THEIR RETRIEVED LITERATURE"]
     for item in evidence:
         lines.append(
             f"\n### {item.gene} ({'higher' if item.direction == 'up' else 'lower'}, "
@@ -75,14 +78,14 @@ def build_payload(evidence, comparison, disease_term, n_up, n_down, n_tested):
 
 
 def summarize(evidence, comparison, disease_term, n_up, n_down, n_tested,
-              api_key=None, model=DEFAULT_MODEL):
+              pathway_lines="", api_key=None, model=DEFAULT_MODEL):
     """Return {'summary', 'model', 'payload_chars', 'usage'}; raises RuntimeError with a
     user-facing message when the API cannot be reached."""
     key = (api_key or os.getenv("OPENAI_API_KEY") or "").strip()
     if not key:
         raise RuntimeError("No OpenAI API key was provided. Add OPENAI_API_KEY to your .env file, "
                            "or paste a key into the box above.")
-    payload = build_payload(evidence, comparison, disease_term, n_up, n_down, n_tested)
+    payload = build_payload(evidence, comparison, disease_term, n_up, n_down, n_tested, pathway_lines)
     try:
         response = OpenAI(api_key=key, timeout=120).responses.create(
             model=model,

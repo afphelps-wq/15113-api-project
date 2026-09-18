@@ -89,8 +89,35 @@
   </section>
 
   <!-- Step 4 ---------------------------------------------------------------->
+  <section class="card hidden" id="step-pathways">
+    <h2><span class="step">4</span> Pathways</h2>
+    <p class="summary">Asks g:Profiler which biological processes and pathways are over-represented
+       among the significant genes, tested against the genes your experiment actually measured.</p>
+    <div class="grid">
+      <label class="field">
+        <span>Species</span>
+        <select id="organism">
+          <option value="human">Human</option>
+          <option value="mouse">Mouse</option>
+        </select>
+      </label>
+    </div>
+    <button id="enrich-btn" class="primary">Find enriched pathways</button>
+    <div id="pathways" class="hidden">
+      <div class="table-wrap">
+        <table id="pathways-table">
+          <thead><tr><th>Pathway or process</th><th>Source</th><th>Genes</th>
+                     <th>Corrected p</th><th>Direction</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="hint">Enrichment uses g:Profiler's g:SCS correction. No API key is required.</p>
+    </div>
+  </section>
+
+  <!-- Step 5 ---------------------------------------------------------------->
   <section class="card hidden" id="step-interpret">
-    <h2><span class="step">4</span> Literature context</h2>
+    <h2><span class="step">5</span> Literature context</h2>
     <p class="summary">Searches PubMed for each of the strongest genes, then asks a language model
        to interpret the results using only those abstracts.</p>
     <div class="grid">
@@ -107,8 +134,8 @@
         <input type="password" id="api-key" placeholder="sk-…" autocomplete="off">
       </label>
     </div>
-    <p class="hint privacy">Only gene symbols, fold changes and p-values are sent to PubMed and
-       OpenAI. Your counts and sample names never leave this computer.</p>
+    <p class="hint privacy">Only gene symbols, fold changes and p-values are sent to PubMed,
+       g:Profiler and OpenAI. Your counts and sample names never leave this computer.</p>
     <button id="interpret-btn" class="primary">Fetch literature and interpret</button>
     <div id="summary" class="summary-box hidden"></div>
     <details id="evidence" class="hidden">
