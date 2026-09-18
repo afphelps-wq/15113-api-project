@@ -87,6 +87,35 @@
     </div>
     <p class="hint">Showing up to 50 genes. The CSV contains every tested gene.</p>
   </section>
+
+  <!-- Step 4 ---------------------------------------------------------------->
+  <section class="card hidden" id="step-interpret">
+    <h2><span class="step">4</span> Literature context</h2>
+    <p class="summary">Searches PubMed for each of the strongest genes, then asks a language model
+       to interpret the results using only those abstracts.</p>
+    <div class="grid">
+      <label class="field">
+        <span>Research context <small>(added to every PubMed search)</small></span>
+        <input type="text" id="disease" value="pancreatic cancer" placeholder="e.g. breast cancer">
+      </label>
+      <label class="field">
+        <span>Genes per direction</span>
+        <input type="number" id="n-genes" value="7" min="1" max="15">
+      </label>
+      <label class="field">
+        <span>OpenAI API key <small>(optional if set in .env)</small></span>
+        <input type="password" id="api-key" placeholder="sk-…" autocomplete="off">
+      </label>
+    </div>
+    <p class="hint privacy">Only gene symbols, fold changes and p-values are sent to PubMed and
+       OpenAI. Your counts and sample names never leave this computer.</p>
+    <button id="interpret-btn" class="primary">Fetch literature and interpret</button>
+    <div id="summary" class="summary-box hidden"></div>
+    <details id="evidence" class="hidden">
+      <summary>Sources used</summary>
+      <div id="evidence-list"></div>
+    </details>
+  </section>
 </main>
 
 <div id="messages"></div>

@@ -11,7 +11,7 @@ import threading
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_file, render_template
 
-from rnaseq import plots
+from rnaseq import llm, ncbi, plots
 from rnaseq.analysis import classify, run_deseq
 from rnaseq.io_utils import (ValidationError, align_samples, groupable_columns, parse_counts,
                              parse_metadata, read_table)
@@ -119,6 +119,48 @@ def analyze():
             for row in display.itertuples()
         ],
     })
+
+
+@app.post("/api/interpret")
+def interpret():
+    """Look up PubMed evidence for the top genes, then ask the model to interpret it.
+
+    Only gene symbols, their statistics and the retrieved abstracts are sent to OpenAI.
+    """
+    body = request.get_json(silent=True) or {}
+    session = load(body.get("session"))
+    if "table" not in session:
+        raise ValidationError("Run the analysis before asking for an interpretation.")
+    result = session["result"]
+    disease = (body.get("disease") or "").strip()
+    per_direction = max(1, min(int(body.get("n_genes", 7)), 15))
+
+    genes = ncbi.select_top_genes(session["table"], n_each=per_direction)
+    if not genes:
+        raise ValidationError("No significant genes with recognisable symbols were found, so there "
+                              "is nothing to look up. Try relaxing the thresholds.")
+    genes = ncbi.gather_evidence(genes, disease, per_gene=int(body.get("per_gene", 3)))
+
+    counts = session["table"]["regulation"].value_counts()
+    try:
+        summary = llm.summarize(
+            genes, f"{result.group_a} vs {result.group_b}", disease,
+            n_up=int(counts.get("up", 0)), n_down=int(counts.get("down", 0)),
+            n_tested=result.n_genes_tested,
+            api_key=(body.get("api_key") or "").strip() or None)
+    except RuntimeError as exc:
+        # The literature is still useful even when the model call fails, so return it either way
+        return jsonify({"error": str(exc), "evidence": _evidence_json(genes)}), 502
+
+    return jsonify({**summary, "evidence": _evidence_json(genes)})
+
+
+def _evidence_json(genes):
+    return [{"gene": g.gene, "direction": g.direction, "log2fc": g.log2fc, "padj": g.padj,
+             "note": g.note,
+             "articles": [{"pmid": a.pmid, "title": a.title, "journal": a.journal, "year": a.year}
+                          for a in g.articles]}
+            for g in genes]
 
 
 @app.get("/api/results/<token>.csv")

@@ -84,6 +84,34 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .tag.up { background: #fdeceb; color: var(--up); }
 .tag.down { background: #eaf1f8; color: var(--down); }
 
+.privacy {
+  border-left: 3px solid var(--accent);
+  padding-left: .7rem;
+  background: #f5f9ff;
+  padding: .55rem .7rem;
+  border-radius: 0 4px 4px 0;
+}
+
+.summary-box {
+  margin-top: 1.25rem;
+  padding: 1.1rem 1.3rem;
+  background: #fbfcfe;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.summary-box h3 { margin: 1.2rem 0 .4rem; font-size: .98rem; }
+.summary-box h3:first-child { margin-top: 0; }
+.summary-box p, .summary-box li { font-size: .92rem; }
+.summary-box ul { margin: .4rem 0; padding-left: 1.2rem; }
+.summary-box a { color: var(--accent); }
+
+#evidence { margin-top: 1rem; font-size: .88rem; }
+#evidence summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+.evidence-gene { margin: .9rem 0; }
+.evidence-gene h4 { margin: 0 0 .25rem; font-size: .9rem; }
+.evidence-gene ul { margin: 0; padding-left: 1.2rem; color: var(--muted); }
+.evidence-gene a { color: var(--accent); }
+
 #messages { max-width: 900px; margin: 0 auto; }
 .message {
   border-radius: 8px; padding: .75rem 1rem; margin-bottom: .75rem; font-size: .9rem;
