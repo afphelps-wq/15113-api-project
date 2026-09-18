@@ -20,5 +20,9 @@ venv/
 .vscode/
 .idea/
 
+# Local copy of the raw GSE205154 download (too large for GitHub; see scripts/make_demo_data.py).
+# The small committed subset in demo_data/ is what the app and tests use.
+test_data/
+
 # Course handout (not part of the submission)
 assighment.txt

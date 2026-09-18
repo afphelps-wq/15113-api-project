@@ -1,0 +1,90 @@
+PROJECT CONTEXT: user's answers to planning questions
+=======================================================
+(Read this before working on the project. Answers are the user's decisions.
+Items marked [ASSUMED] were not stated by the user and should be confirmed.)
+
+BACKGROUND
+- Course homework (15-113): integrate a public API into a small app. See assighment.txt.
+- Repo: https://github.com/afphelps-wq/15113-api-project (public), local folder "15113/API HW".
+- Test data: GEO series GSE205154 (289 bulk RNA-seq PDAC tumors, FFPE, Homo sapiens),
+  in test_data/. Metadata: GSE205154_series_matrix.txt (fields: tumor type Primary 218 / Met 71;
+  tissue: Pancreas 219, Liver 30, Peritoneum 15, Lung 7, ...). Sample IDs match count columns 289/289.
+  The liver-avid vs lung-avid label for primaries from the paper is NOT in GEO metadata.
+- Counts file has non-integer estimated counts -> must round before PyDESeq2.
+- Large count files (TMM 221MB, TPM 92MB, counts 81MB) are gitignored (GitHub 100MB limit).
+
+ROUND 1: SCOPE AND AUDIENCE
+- Primary user: wet-lab researchers with little coding experience
+  (plain-language UI; count matrix from a core facility; wants DE results without writing code).
+- Inputs supported: (a) count matrix CSV + sample metadata CSV, AND (b) a GEO accession
+  (e.g. GSE205154) that the app fetches itself. NOT selected: built-in example button, manual
+  sample entry in UI. [ASSUMED: still worth a small bundled demo dataset for graders; confirm]
+- Analysis steps wanted: QC and exploration (library sizes, PCA, clustering); differential
+  expression with PyDESeq2; volcano plot + heatmap of top genes; pathway enrichment via g:Profiler.
+- Demo headline comparison: Primary vs. Metastasis (218 vs. 71 samples).
+
+ROUND 2: APIs, LLM, KEYS
+- NCBI E-utilities: fetch recent PubMed abstracts per top gene (gene + disease term).
+  These abstracts also feed the LLM. NOT selected: NCBI Gene summaries, link-outs, ID resolution.
+- LLM role: grounded summary only. Given the DE table, enrichment terms, and retrieved abstracts,
+  write a short interpretation that cites PMIDs, labeled as hypotheses, using only supplied text.
+  No chat, no experiment suggestions.
+- Key handling: local .env for development; when deployed, the user pastes their own key in the
+  UI. Never commit keys.
+- OpenAI access: user has a ChatGPT account but NO API key yet. ChatGPT Plus is billed separately
+  from API credits; a key must be created and funded at the OpenAI platform. (Action item for user.)
+
+ROUND 3: INTERFACE, DEPLOYMENT, TIMELINE, OUTPUTS
+- UI framework: Flask + HTML/JS (user's choice, over the recommended Streamlit). Implication: more
+  code to write and explain; keys must stay in the Flask backend, never in browser JS.
+- Deployment: local first, deploy later only if time allows (stretch goal).
+- Timeline: DUE SUNDAY 2026-09-20 at 8:00 pm (today when planned: Fri 2026-09-18, ~2 days). Plan for a finish by ~5 pm Sunday.
+- Outputs wanted: DE results CSV download, figure PNG downloads, and a downloadable HTML/PDF report.
+
+ROUND 4: PRIORITIES, GEO, STATS, PRIVACY
+- MUST SHIP (core): (1) CSV upload + PyDESeq2 + volcano plot; (2) NCBI PubMed abstracts + OpenAI summary.
+- STRETCH GOALS (only if time): g:Profiler enrichment, QC/PCA/heatmap, GEO accession fetch,
+  HTML/PDF report. (User selected these features in Round 1 but did not rank them must-have.)
+- GEO accession input behavior (when built): use series matrix metadata + supplementary count file;
+  show a clear error when a series does not fit that layout. Not general "any GEO series" support.
+- DE design: two-group comparison from a chosen metadata column, with optional batch covariate.
+  Defaults padj < 0.05 and |log2FC| > 1, adjustable by the user.
+- Privacy: only gene symbols, statistics, and retrieved abstracts are sent to external APIs.
+  NEVER send raw counts or sample IDs. State this in the UI and README.
+
+ROUND 5: RUNTIME, GENE LIMITS, PORTFOLIO, WORKING STYLE
+- Runtime: filter low-count genes first, show a progress/loading state, run DE as a background job
+  (UI polls for completion).
+- Genes sent to PubMed/OpenAI: top 10-15 by adjusted p-value, split into up and down, plus a
+  user-editable disease term (default e.g. "pancreatic cancer").
+- Live portfolio: afphelps-wq.github.io (public GitHub repo). Project gets added there.
+  Reminder: the portfolio repo should only link/embed (video, screenshots), no keyed code.
+- Working style: BUILD QUICKLY, THEN WRITE A CODE WALKTHROUGH at the end (for reading/discussing
+  the code, per the assignment). Keep code readable and reasonably commented so the walkthrough is easy.
+
+ROUND 6: SPECIES, DEMO DATA, VALIDATION, COST
+- Species: human AND mouse (needs a species selector; gene naming differs, e.g. mouse symbols are
+  capitalized; PubMed searches and g:Profiler organism codes must follow the selection).
+  Note: demo data (GSE205154) is human; no mouse test dataset chosen yet. [OPEN]
+- Demo data: bundle a subset of ~60 samples (mix of Primary and Met) with ~20k filtered genes in the
+  repo, plus a script documenting how it was derived from GSE205154 (full files stay gitignored).
+- Validation: sanity checks on known biology (e.g. liver-specific genes up in liver mets) plus a few
+  unit tests (input validation, count rounding).
+- LLM budget: small (~$5). Use a cheap, fast OpenAI model with capped output tokens; set a spend
+  limit on the OpenAI account. One grounded summary call per analysis.
+
+OPEN ITEMS / NEXT ACTIONS
+- User: create an OpenAI API key at platform.openai.com, add credits + a monthly spend limit, put the
+  key in a local .env (gitignored), never in the repo. Optionally get a free NCBI API key.
+- Risk to revisit: Flask + human/mouse + report generation + GEO fetch + all analysis steps in one week
+  is a lot; must-have core is CSV upload -> PyDESeq2 -> volcano plot -> PubMed -> OpenAI summary.
+- DECIDED: mouse support is a STRETCH GOAL (lowest priority). Human only for must-ship.
+
+ROUND 7: DUE DATE, MOUSE, BUILD PLAN (after benchmarking)
+- Due Sunday 2026-09-20 8 pm. Mouse = stretch goal. Build plan drafted in build_plan.md.
+- Benchmark result: PyDESeq2 on all 289 samples (22.5k genes after filtering) takes ~14 s, so a
+  background job is unnecessary; plan uses a synchronous request with a spinner (changes Round 5 answer;
+  pending user approval).
+- Data finding: top Primary-vs-Met genes are tissue-composition signals (pancreas genes down in mets,
+  liver plasma-protein genes up). The AI summary prompt and UI must warn about this.
+- Gene IDs: Ensembl versioned; hgnc_symbol blank for ~22k rows; fall back to gene_name then ID.
