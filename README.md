@@ -1,26 +1,150 @@
-# 15-113 API Homework
+# Bulk RNA-seq Explorer
 
-<!-- TODO: one-line description of the app once the API is chosen -->
+A web app that takes a bulk RNA-seq count matrix, compares two groups of samples, and explains the
+result. It runs the standard differential expression analysis, draws a volcano plot, then looks up
+each of the strongest genes in PubMed and asks a language model to interpret the findings using only
+the abstracts it retrieved.
 
-## How the API is called
+The goal is to let a wet-lab researcher go from a count matrix to an annotated, literature-backed
+gene list without writing any code.
 
-<!-- TODO: 3-5 sentences: which module(s) make the request (e.g. requests),
-     key parameters sent, and the format/data types returned (e.g. JSON -> dict/list). -->
+![Volcano plot of metastatic vs primary pancreatic tumours](docs/volcano.png)
 
-## API key
+## How the APIs are called
 
-<!-- TODO: if the API needs a key, explain how to get one and where to put it.
-     Never include the key itself. If no key is needed, say so. -->
+The app calls two public APIs with the `requests` and `openai` Python modules. For each of the top
+differentially expressed genes, [`rnaseq/ncbi.py`](rnaseq/ncbi.py) sends an **NCBI E-utilities**
+`esearch` request (`db=pubmed`, `term="<gene>"[Title/Abstract] AND (<disease term>)`, `retmax=3`,
+`sort=pub_date`, `retmode=json`) and gets back JSON containing a list of PubMed ID strings; those IDs
+are then passed to a single batched `efetch` request (`rettype=abstract`, `retmode=xml`) whose XML
+response is parsed into title, abstract, journal and year fields. Those abstracts, together with each
+gene's symbol, log2 fold change and adjusted p-value, are assembled into one text prompt in
+[`rnaseq/llm.py`](rnaseq/llm.py) and sent to the **OpenAI Responses API**
+(`model=gpt-5-mini`, `max_output_tokens=4000`, `reasoning={"effort": "low"}`), which returns a JSON
+response whose `output_text` field holds the Markdown summary displayed in the browser. Both APIs are
+called only from the Flask backend, never from the browser, so the keys are never exposed to users.
 
-Copy `.env.example` to `.env` and fill in your own key. `.env` is git-ignored.
+## API keys
 
-## Setup and running
+Two keys, one required and one optional. **Never commit either one** — `.env` is listed in
+`.gitignore` and must stay that way.
+
+| Key | Required? | Where to get it | Cost |
+|---|---|---|---|
+| `OPENAI_API_KEY` | Yes, for the AI summary | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | About $0.007 per analysis |
+| `NCBI_API_KEY` | No | [NCBI account settings](https://www.ncbi.nlm.nih.gov/account/settings/) | Free |
+
+An OpenAI key needs its own credit balance: **API usage is billed separately from a ChatGPT
+subscription**, so a paid ChatGPT plan does not include it. Add a few dollars of credit under
+Billing, and set a monthly spend limit while you are there. The NCBI key is optional and only raises
+the PubMed rate limit from 3 to 10 requests per second.
+
+To provide them, copy the example file and paste your keys into the copy:
 
 ```bash
-# TODO: install dependencies
-# TODO: command to run the app
+cp .env.example .env      # then edit .env and paste the keys after the = signs
 ```
 
-## Prompt log
+The app reads `.env` at startup with `python-dotenv`. Alternatively you can export the variables in
+your shell, or paste an OpenAI key into the optional field in the web interface, which keeps it in
+memory for that request only.
 
-See [prompt_log.md](prompt_log.md).
+## Running it
+
+Requires Python 3.11 or newer (tested on 3.14).
+
+```bash
+git clone https://github.com/afphelps-wq/15113-api-project.git
+cd 15113-api-project
+
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+cp .env.example .env               # paste your OpenAI key into .env
+
+python app.py                      # then open http://127.0.0.1:5000
+```
+
+In the browser, upload `demo_data/demo_counts.csv` and `demo_data/demo_metadata.csv`, group the
+samples by `tumor_type`, and compare `Met` against `Primary`. The analysis takes about 10 seconds and
+the literature step about 20 seconds.
+
+To run the tests: `python -m pytest`
+
+## The demo dataset
+
+`demo_data/` holds 60 samples (30 primary tumours, 30 metastases) and 22,592 genes, taken from
+[GEO series GSE205154](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE205154) — bulk RNA-seq
+of 289 formalin-fixed pancreatic ductal adenocarcinoma tumours. The full series is too large for
+GitHub, so [`scripts/make_demo_data.py`](scripts/make_demo_data.py) documents exactly how the subset
+was derived and will rebuild it if you download the original files.
+
+This comparison doubles as a correctness check. Metastases should lose pancreas-specific genes and
+gain liver and plasma genes, simply because of the tissue each sample was cut from — and that is
+exactly what the app reports (GCG, INS, CTRC and CPB1 down; HP, HPX, SERPINC1, F2 and AHSG up).
+Two tests in `tests/test_pipeline.py` assert this, so a regression that broke the statistics would
+fail the suite.
+
+It is also a useful warning. A bulk RNA-seq comparison between samples from **different organs**
+largely measures tissue composition, not tumour biology. The interface says so, and the model is
+instructed to raise it — which it does unprompted in the generated summary.
+
+## What the app does
+
+1. **Upload** a count matrix (genes in rows, samples in columns) and a sample metadata table.
+   Estimated counts with decimals are rounded, genes are labelled by symbol where one exists,
+   duplicate labels are collapsed, and samples missing from either file are reported and dropped.
+2. **Compare** any two groups from a metadata column, optionally adjusting for a batch column.
+   Differential expression runs through [PyDESeq2](https://pydeseq2.readthedocs.io/), a Python port
+   of DESeq2, after filtering genes with too few reads to test.
+3. **Review** the ranked gene table and volcano plot; download the full results as CSV or the figure
+   as PNG.
+4. **Interpret** the top genes with PubMed abstracts and an AI summary that cites the PMIDs it used.
+
+## Privacy
+
+Uploaded counts and sample names stay in the server process on your own machine. They are never
+written to disk and never sent to an external service. Only gene symbols, fold changes, adjusted
+p-values and the retrieved abstracts are sent to OpenAI. `build_payload()` in `rnaseq/llm.py` is the
+single place the request is assembled, and `tests/test_literature.py` asserts that sample
+identifiers and raw counts cannot appear in it.
+
+## Limitations
+
+- **Bulk only.** Single-cell or spatial data will not work here.
+- **Raw counts only.** Normalized values (TPM, FPKM, CPM) break DESeq2's model; the app warns when
+  the input looks normalized, but cannot always detect it.
+- **Two groups at a time**, with an optional batch covariate. No interaction terms or multi-factor
+  designs.
+- **Human-focused.** The PubMed search uses gene symbols as written, so mouse symbols work but have
+  not been tested.
+- **The AI summary is a starting point, not a result.** It reads only the abstracts retrieved for
+  that run, automated PubMed searches return some irrelevant papers (short symbols like `HP` and
+  `TF` collide with common abbreviations), and every claim needs checking against the linked
+  sources before it goes anywhere near a manuscript.
+
+## Project layout
+
+```
+app.py                  Flask routes (upload, analyze, interpret, downloads)
+rnaseq/
+  io_utils.py           parsing, validation, gene labels, sample alignment
+  analysis.py           gene filtering and the PyDESeq2 comparison
+  plots.py              volcano plot rendered server-side as PNG
+  ncbi.py               PubMed esearch/efetch client and rate limiter
+  llm.py                prompt construction and the OpenAI call
+templates/, static/     single-page interface, plain JavaScript
+demo_data/              committed 60-sample subset of GSE205154
+scripts/                how the demo subset was built
+tests/                  39 tests, including a biology sanity check
+```
+
+[`WALKTHROUGH.md`](WALKTHROUGH.md) explains how the pieces fit together and why the trickier parts
+work the way they do. [`prompt_log.md`](prompt_log.md) records the AI tools and prompts used to build
+it.
+
+## Credits
+
+Built for 15-113 by Anabella Phelps. Data from GEO series GSE205154. Statistics by PyDESeq2,
+literature from NCBI E-utilities, summaries from the OpenAI API.
