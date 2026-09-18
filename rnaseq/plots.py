@@ -1,5 +1,6 @@
 """Figures rendered server-side as PNG bytes, so the browser only ever receives an image."""
 import io
+import textwrap
 
 import matplotlib
 matplotlib.use("Agg")                      # no GUI: required when running inside a web server
@@ -20,6 +21,14 @@ TEXT = "#52514e"
 # Diverging ramp for z-scores: two opposite hues with a neutral grey midpoint, equal steps per arm.
 EXPRESSION_CMAP = LinearSegmentedColormap.from_list("expression", [
     "#104281", "#2a78d6", "#9ec5f4", NEUTRAL, "#f3a3a2", "#e34948", "#8c2322"])
+
+# One sequential ramp per direction, light to dark, so significance reads as depth of colour
+# while the hue still says which way the genes moved.
+DIRECTION_CMAPS = {
+    "up":   LinearSegmentedColormap.from_list("up", ["#fbd5d4", "#f3a3a2", "#e34948", "#a82a2a"]),
+    "down": LinearSegmentedColormap.from_list("down", ["#cde2fb", "#86b6ef", "#2a78d6", "#154a8a"]),
+}
+DIRECTION_LABELS = {"up": "Higher in {a}", "down": "Lower in {a}"}
 
 MAX_LABELS = 12
 
@@ -144,4 +153,269 @@ def heatmap(normalized, table, conditions, group_a, group_b, top_n=30):
     bar.set_label("expression relative to the gene's mean (z-score)", fontsize=8, color=TEXT)
     bar.ax.tick_params(labelsize=7, colors=TEXT)
     bar.outline.set_visible(False)
+    return _to_png(fig)
+
+
+# --------------------------------------------------------------------------------------
+# Pathway enrichment figures
+#
+# These follow the conventions of clusterProfiler's enrichplot, the reference tool for this
+# kind of figure in R, so the output is familiar to anyone who has read a paper using it:
+#   dot plot      gene ratio on x, dot size = genes in the term, colour = adjusted p-value
+#   bar plot      bars ranked by significance
+#   network map   terms as nodes, edges where two terms share genes (emapplot)
+# --------------------------------------------------------------------------------------
+
+def _wrap(name, width=42, max_lines=2):
+    lines = textwrap.wrap(name, width=width)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1][:width - 1] + "…"
+    return "\n".join(lines)
+
+
+def _split_directions(terms, top_n):
+    """Most significant terms per direction, keeping only directions that have any.
+
+    GO and Reactome often describe the same process under the same words (for example
+    "Extracellular matrix organization" and "extracellular matrix organization"), which would
+    otherwise fill the figure with repeats, so only the most significant of each name is kept.
+    """
+    groups = []
+    for direction in ("up", "down"):
+        subset = sorted((t for t in terms if t.direction == direction), key=lambda t: t.p_value)
+        seen, unique = set(), []
+        for term in subset:
+            key = term.name.strip().lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(term)
+        if unique:
+            groups.append((direction, unique[:top_n]))
+    return groups
+
+
+def _no_data(message):
+    fig, ax = plt.subplots(figsize=(7, 2))
+    ax.text(0.5, 0.5, message, ha="center", va="center", fontsize=10, color=TEXT)
+    ax.set_axis_off()
+    return _to_png(fig)
+
+
+def enrichment_dot(terms, group_a, group_b, top_n=10):
+    """clusterProfiler-style dot plot, one panel per direction."""
+    groups = _split_directions(terms, top_n)
+    if not groups:
+        return _no_data("No enriched pathways to plot.")
+
+    heights = [len(items) for _, items in groups]
+    fig, axes = plt.subplots(len(groups), 1, squeeze=False,
+                             figsize=(9.5, 1.6 + 0.42 * sum(heights) + 1.1 * len(groups)),
+                             gridspec_kw={"height_ratios": heights})
+    axes = axes.ravel()
+
+    for ax, (direction, items) in zip(axes, groups):
+        items = list(reversed(items))                      # most significant at the top
+        y = range(len(items))
+        ratios = [t.gene_ratio for t in items]
+        sizes = [t.intersection_size for t in items]
+        scores = [-np.log10(max(t.p_value, 1e-300)) for t in items]
+
+        # Dot area in points^2, scaled so the smallest term is still visible
+        span = max(sizes) or 1
+        areas = [40 + 260 * (s / span) for s in sizes]
+        dots = ax.scatter(ratios, list(y), s=areas, c=scores, cmap=DIRECTION_CMAPS[direction],
+                          edgecolors="white", linewidths=0.8, zorder=3)
+
+        ax.set_yticks(list(y), [_wrap(t.name) for t in items], fontsize=8, color=TEXT)
+        ax.tick_params(axis="x", labelsize=8, colors=TEXT)
+        ax.grid(axis="x", color=NEUTRAL, linewidth=0.8, zorder=0)
+        ax.set_axisbelow(True)
+        ax.set_title(DIRECTION_LABELS[direction].format(a=group_a), fontsize=10, loc="left", pad=8)
+        ax.margins(x=0.16, y=0.12)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+        bar = fig.colorbar(dots, ax=ax, fraction=0.03, pad=0.015)
+        bar.set_label("$-$log$_{10}$ adjusted p", fontsize=7, color=TEXT)
+        bar.ax.tick_params(labelsize=6, colors=TEXT)
+        bar.outline.set_visible(False)
+
+        # Legend for dot size: smallest and largest term in this panel
+        for count in sorted({min(sizes), max(sizes)}):
+            ax.scatter([], [], s=40 + 260 * (count / span), c="#b9b9c4",
+                       edgecolors="white", linewidths=0.8, label=f"{count} genes")
+        ax.legend(loc="lower right", fontsize=7, frameon=False, labelspacing=1.1,
+                  borderpad=0.6, handletextpad=0.9)
+
+    axes[-1].set_xlabel("gene ratio  (term genes found / genes submitted)", fontsize=8, color=TEXT)
+    fig.tight_layout()
+    return _to_png(fig)
+
+
+def enrichment_bar(terms, group_a, group_b, top_n=10):
+    """Bar plot ranked by significance, one panel per direction."""
+    groups = _split_directions(terms, top_n)
+    if not groups:
+        return _no_data("No enriched pathways to plot.")
+
+    heights = [len(items) for _, items in groups]
+    fig, axes = plt.subplots(len(groups), 1, squeeze=False,
+                             figsize=(9.5, 1.4 + 0.4 * sum(heights) + 1.0 * len(groups)),
+                             gridspec_kw={"height_ratios": heights})
+    axes = axes.ravel()
+
+    for ax, (direction, items) in zip(axes, groups):
+        items = list(reversed(items))
+        scores = [-np.log10(max(t.p_value, 1e-300)) for t in items]
+        bars = ax.barh(range(len(items)), scores, height=0.62,
+                       color=COLORS[direction], zorder=3)
+
+        for rect, term in zip(bars, items):
+            ax.text(rect.get_width() + max(scores) * 0.015, rect.get_y() + rect.get_height() / 2,
+                    f"{term.intersection_size}/{term.term_size}", va="center",
+                    fontsize=7, color=TEXT)
+
+        ax.set_yticks(range(len(items)), [_wrap(t.name) for t in items], fontsize=8, color=TEXT)
+        ax.tick_params(axis="x", labelsize=8, colors=TEXT)
+        ax.grid(axis="x", color=NEUTRAL, linewidth=0.8, zorder=0)
+        ax.set_axisbelow(True)
+        ax.set_title(DIRECTION_LABELS[direction].format(a=group_a), fontsize=10, loc="left", pad=8)
+        ax.margins(x=0.14)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+    axes[-1].set_xlabel("$-$log$_{10}$ adjusted p-value   (labels show genes found / term size)",
+                        fontsize=8, color=TEXT)
+    fig.tight_layout()
+    return _to_png(fig)
+
+
+def _spring_layout(weights, iterations=320, seed=0):
+    """Force-directed layout (Fruchterman-Reingold).
+
+    Every pair of nodes pushes apart with k^2/d, connected nodes pull together with w*d^2/k,
+    and the step size cools over time. Written out rather than pulling in a graph library for
+    one figure.
+    """
+    n = len(weights)
+    if n == 1:
+        return np.zeros((1, 2))
+    rng = np.random.default_rng(seed)
+    pos = rng.uniform(0, 1, (n, 2))
+    k = np.sqrt(1.0 / n)                       # preferred distance between nodes
+    temperature = 0.12
+    self_pairs = np.eye(n)
+    for _ in range(iterations):
+        delta = pos[:, None, :] - pos[None, :, :]
+        distance = np.linalg.norm(delta, axis=-1)
+        # Keep the diagonal finite: an infinite self-distance meets a zero self-weight in the
+        # attraction term, and 0 * inf is NaN, which would wipe out every position.
+        np.fill_diagonal(distance, 1.0)
+        distance = np.maximum(distance, 1e-4)
+        unit = delta / distance[..., None]                 # zero on the diagonal already
+        repulsion = ((1.0 - self_pairs) * k ** 2 / distance)[..., None] * unit
+        attraction = (weights * distance ** 2 / k)[..., None] * unit
+        step = (repulsion - attraction).sum(axis=1)
+        length = np.linalg.norm(step, axis=1, keepdims=True)
+        pos += step / np.maximum(length, 1e-9) * np.minimum(length, temperature)
+        temperature *= 0.99
+    return _normalize(pos)
+
+
+def _normalize(pos):
+    span = pos.max(axis=0) - pos.min(axis=0)
+    return (pos - pos.min(axis=0)) / np.where(span < 1e-9, 1, span)
+
+
+def _separate(pos, radii, iterations=300):
+    """Push overlapping nodes apart.
+
+    A force-directed layout places clusters but happily stacks their members, which makes the
+    labels unreadable. Each radius here covers the dot plus the space its label needs.
+    """
+    pos = pos.copy()
+    n = len(pos)
+    for _ in range(iterations):
+        moved = False
+        for i in range(n):
+            for j in range(i + 1, n):
+                delta = pos[i] - pos[j]
+                distance = float(np.hypot(*delta))
+                minimum = radii[i] + radii[j]
+                if distance < minimum:
+                    if distance < 1e-9:                    # exactly on top of each other
+                        delta, distance = np.array([1e-3, 0.0]), 1e-3
+                    shift = (minimum - distance) / 2 * (delta / distance)
+                    pos[i] += shift
+                    pos[j] -= shift
+                    moved = True
+        if not moved:
+            break
+    return _normalize(pos)
+
+
+def enrichment_network(terms, group_a, group_b, top_n=12, min_overlap=0.2):
+    """Enrichment map (emapplot): pathways that share genes are drawn connected.
+
+    Edge weight is the Jaccard index of the two terms' gene sets, so clusters of edges mark
+    groups of pathways describing the same underlying biology.
+    """
+    chosen = []
+    for _, items in _split_directions(terms, top_n):
+        chosen.extend(items)
+    chosen = [t for t in chosen if t.genes]
+    if len(chosen) < 2:
+        return _no_data("Not enough pathways with shared genes to draw a network.")
+
+    gene_sets = [set(t.genes) for t in chosen]
+    n = len(chosen)
+    weights = np.zeros((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            union = gene_sets[i] | gene_sets[j]
+            if union:
+                weights[i, j] = weights[j, i] = len(gene_sets[i] & gene_sets[j]) / len(union)
+    weights[weights < min_overlap] = 0
+
+    counts = np.array([t.intersection_size for t in chosen], dtype=float)
+    areas = 130 + 900 * (counts / counts.max())
+
+    # Reserve room for each dot and the two lines of label underneath it, in the same
+    # normalized space the layout works in.
+    figure_width_points = 9.5 * 72
+    radii = np.sqrt(areas / np.pi) / figure_width_points + 0.075
+
+    pos = _separate(_spring_layout(weights), radii)
+    fig, ax = plt.subplots(figsize=(9.5, 7.6))
+
+    strongest = weights.max() or 1
+    for i in range(n):
+        for j in range(i + 1, n):
+            if weights[i, j]:
+                ax.plot([pos[i, 0], pos[j, 0]], [pos[i, 1], pos[j, 1]],
+                        color="#c9c9d2", linewidth=0.6 + 3.2 * weights[i, j] / strongest,
+                        zorder=1, alpha=0.85, solid_capstyle="round")
+
+    for direction in ("up", "down"):
+        index = [i for i, t in enumerate(chosen) if t.direction == direction]
+        if index:
+            ax.scatter(pos[index, 0], pos[index, 1], s=areas[index], c=COLORS[direction],
+                       edgecolors="white", linewidths=1.6, zorder=2, alpha=0.92,
+                       label=DIRECTION_LABELS[direction].format(a=group_a))
+
+    for i, term in enumerate(chosen):
+        ax.annotate(_wrap(term.name, width=24, max_lines=2), (pos[i, 0], pos[i, 1]),
+                    fontsize=6.5, ha="center", va="center",
+                    xytext=(0, -np.sqrt(areas[i]) / 2 - 7), textcoords="offset points",
+                    color=TEXT, zorder=3)
+
+    ax.set_axis_off()
+    ax.margins(0.16)
+    ax.legend(loc="upper left", fontsize=8, frameon=False, markerscale=0.45,
+              bbox_to_anchor=(0, 1.02))
+    ax.set_title("Pathways connected where they share genes  "
+                 "(line width = overlap, dot size = genes found)",
+                 fontsize=9, color=TEXT, loc="left", pad=14)
+    fig.tight_layout()
     return _to_png(fig)

@@ -285,11 +285,43 @@ $("enrich-btn").onclick = async () => {
       body.append(tr);
     }
     $("pathways").classList.toggle("is-hidden", data.terms.length === 0);
+    if (data.terms.length) refreshPathwayFigure();
   } catch (error) {
     showMessage(error.message);
   } finally {
     busy(false);
   }
+};
+
+/* The enrichment results can be drawn three ways, or read as a table. */
+function refreshPathwayFigure() {
+  if (state.pathwayView === "table") return;
+  const terms = $("pathway-terms").value;
+  const url = `/api/figure/${state.session}/pathways.png` +
+    `?kind=${state.pathwayView || "dot"}&terms=${terms}&t=${state.stamp}`;
+  $("pathway-figure").src = url;
+  $("download-pathway-figure").href = `${url}&download=1`;
+}
+
+state.pathwayView = "dot";
+
+for (const tab of document.querySelectorAll(".seg[data-pathfig]")) {
+  tab.onclick = () => {
+    document.querySelectorAll(".seg[data-pathfig]")
+      .forEach((t) => t.classList.toggle("is-active", t === tab));
+    state.pathwayView = tab.dataset.pathfig;
+    const showTable = state.pathwayView === "table";
+    $("pathway-table-wrap").classList.toggle("is-hidden", !showTable);
+    $("pathway-figure-wrap").classList.toggle("is-hidden", showTable);
+    $("download-pathway-figure").classList.toggle("is-hidden", showTable);
+    refreshPathwayFigure();
+  };
+}
+
+$("pathway-terms").onchange = refreshPathwayFigure;
+
+$("pathway-figure").onerror = () => {
+  if (state.pathwayView !== "table") showMessage("That pathway figure could not be drawn.");
 };
 
 /* ---------- step 5: literature + interpretation -------------------------- */

@@ -15,6 +15,8 @@ gene list without writing any code.
 
 ![Clustered heatmap showing liver genes high in metastases and pancreatic genes high in primary tumours](docs/heatmap.png)
 
+![Enrichment network: drug-metabolism pathways cluster together, separately from extracellular matrix pathways](docs/pathway_network.png)
+
 ## How the APIs are called
 
 The app calls three public APIs with the `requests` and `openai` Python modules. For each of the top
@@ -116,7 +118,10 @@ instructed to raise it — which it does unprompted in the generated summary.
    z-scores each gene across samples and clusters genes by pattern, so it shows whether the two
    groups actually separate — and which samples disagree with their group.
 4. **Find pathways** over-represented among the significant genes, using g:Profiler (GO biological
-   process, KEGG and Reactome), tested against the genes the experiment actually measured.
+   process, KEGG and Reactome), tested against the genes the experiment actually measured. Results
+   can be read as a **dot plot**, a **bar plot**, an **enrichment network** or a table, following
+   the conventions of [clusterProfiler](https://bioconductor.org/packages/clusterProfiler/)'s
+   `enrichplot` so the figures are familiar from the literature.
 5. **Interpret** the top genes with PubMed abstracts and an AI summary that cites the PMIDs it used.
 
 ## Privacy
@@ -135,6 +140,9 @@ cannot appear in it.
   the input looks normalized, but cannot always detect it.
 - **Two groups at a time**, with an optional batch covariate. No interaction terms or multi-factor
   designs.
+- **Enrichment figures are drawn in Python**, matching clusterProfiler's visual grammar rather than
+  calling R. That keeps installation to `pip install -r requirements.txt`; it also means the
+  statistics come from g:Profiler, not from clusterProfiler's own enrichment.
 - **Human-focused.** Pathway enrichment has a human/mouse selector, and the PubMed search uses gene
   symbols as written, so mouse data should work — but it has only been tested on human data.
 - **The AI summary is a starting point, not a result.** It reads only the abstracts retrieved for
@@ -149,14 +157,14 @@ app.py                  Flask routes (upload, analyze, enrich, interpret, downlo
 rnaseq/
   io_utils.py           parsing, validation, gene labels, sample alignment
   analysis.py           gene filtering and the PyDESeq2 comparison
-  plots.py              volcano plot and clustered heatmap, rendered server-side as PNG
+  plots.py              volcano, heatmap and the three enrichment figures, as PNG
   enrichment.py         g:Profiler pathway and GO enrichment (no key needed)
   ncbi.py               PubMed esearch/efetch client and rate limiter
   llm.py                prompt construction and the OpenAI call
 templates/, static/     single-page interface, plain JavaScript
 demo_data/              committed 60-sample subset of GSE205154
 scripts/                how the demo subset was built
-tests/                  62 tests, including a biology sanity check
+tests/                  87 tests, including a biology sanity check
 ```
 
 [`WALKTHROUGH.md`](WALKTHROUGH.md) explains how the pieces fit together and why the trickier parts

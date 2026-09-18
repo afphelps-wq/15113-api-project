@@ -191,13 +191,37 @@
         <span class="foot-hint">g:Profiler &middot; GO, KEGG and Reactome &middot; no API key</span>
       </div>
       <div id="pathways" class="is-hidden">
-        <div class="table-wrap">
+        <div class="segmented" role="tablist">
+          <button class="seg is-active" data-pathfig="dot" role="tab" type="button">Dot plot</button>
+          <button class="seg" data-pathfig="bar" role="tab" type="button">Bar plot</button>
+          <button class="seg" data-pathfig="network" role="tab" type="button">Network</button>
+          <button class="seg" data-pathfig="table" role="tab" type="button">Table</button>
+        </div>
+
+        <div class="figure-wrap" id="pathway-figure-wrap">
+          <label class="inline-field">
+            Terms per direction
+            <select id="pathway-terms">
+              <option>5</option><option selected>10</option><option>15</option><option>20</option>
+            </select>
+          </label>
+          <img id="pathway-figure" alt="Enriched pathways for the significant genes">
+        </div>
+
+        <div class="actions">
+          <a id="download-pathway-figure" class="btn btn-ghost" download>Download figure (PNG)</a>
+        </div>
+
+        <div class="table-wrap is-hidden" id="pathway-table-wrap">
           <table id="pathways-table">
             <thead><tr><th>Pathway or process</th><th>Source</th><th>Genes</th>
                        <th>Corrected p</th><th>Direction</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
+        <p class="note">Figures follow the conventions of clusterProfiler's enrichplot: the dot plot
+           shows gene ratio with dot size for genes found, and the network links pathways that share
+           genes.</p>
       </div>
     </section>
 

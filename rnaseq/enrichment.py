@@ -37,7 +37,14 @@ class Term:
     p_value: float
     intersection_size: int      # how many of our genes are in this term
     term_size: int              # how many genes the term contains in total
+    query_size: int             # how many genes were submitted for this direction
     direction: str              # "up" or "down"
+    genes: tuple = ()           # our genes found in this term; drives the network plot
+
+    @property
+    def gene_ratio(self):
+        """Fraction of the submitted genes that fall in this term (clusterProfiler's GeneRatio)."""
+        return self.intersection_size / self.query_size if self.query_size else 0.0
 
     @property
     def url(self):
@@ -85,15 +92,18 @@ def enrich(table, organism="human", sources=None, max_terms=MAX_TERMS_PER_DIRECT
         if len(genes) < 3:
             notes.append(f"Too few {direction}-regulated genes ({len(genes)}) to test for enrichment.")
             continue
+        query = genes[:MAX_QUERY_GENES]
         payload = {
             "organism": species,
-            "query": genes[:MAX_QUERY_GENES],
+            "query": query,
             "background": background,
             "domain_scope": "custom_annotated",     # background limited to genes we actually tested
             "sources": sources or DEFAULT_SOURCES,
             "user_threshold": 0.05,
             "significance_threshold_method": "g_SCS",   # g:Profiler's own multiple-testing correction
-            "no_evidences": True,                        # smaller response; we only need the terms
+            # Evidence codes tell us which of our genes are in each term, which the network plot
+            # needs to measure how much two pathways overlap.
+            "no_evidences": False,
         }
         found = _post(payload, session).get("result", [])
         if not found:
@@ -107,8 +117,21 @@ def enrich(table, organism="human", sources=None, max_terms=MAX_TERMS_PER_DIRECT
             results.append(Term(source=item["source"], term_id=item["native"], name=item["name"],
                                 p_value=float(item["p_value"]),
                                 intersection_size=int(item["intersection_size"]),
-                                term_size=int(item["term_size"]), direction=direction))
+                                term_size=int(item["term_size"]),
+                                query_size=int(item.get("query_size") or len(query)),
+                                direction=direction,
+                                genes=_genes_in_term(item, query)))
     return results, notes
+
+
+def _genes_in_term(item, query):
+    """Which of the submitted genes are annotated to this term.
+
+    g:Profiler returns `intersections` as one entry per submitted gene, in the order we sent them:
+    a non-empty entry (a list of evidence codes) means that gene is in the term.
+    """
+    evidence = item.get("intersections") or []
+    return tuple(gene for gene, codes in zip(query, evidence) if codes)
 
 
 def as_prompt_lines(terms, limit_per_direction=8):

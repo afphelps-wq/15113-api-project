@@ -212,6 +212,28 @@ def download_volcano(token):
                      as_attachment=request.args.get("download") == "1", download_name=name)
 
 
+PATHWAY_FIGURES = {"dot": plots.enrichment_dot, "bar": plots.enrichment_bar,
+                   "network": plots.enrichment_network}
+
+
+@app.get("/api/figure/<token>/pathways.png")
+def download_pathway_figure(token):
+    """Dot plot, bar plot or enrichment network for the terms found in /api/enrich."""
+    session = load(token)
+    terms = session.get("pathways")
+    if not terms:
+        raise ValidationError("Find the enriched pathways before drawing this figure.")
+    kind = request.args.get("kind", "dot")
+    if kind not in PATHWAY_FIGURES:
+        raise ValidationError(f"Unknown figure type '{kind}'.")
+    result = session["result"]
+    top_n = max(3, min(int(request.args.get("terms", 10)), 20))
+    png = PATHWAY_FIGURES[kind](terms, result.group_a, result.group_b, top_n=top_n)
+    name = f"{kind}_{result.group_a}_vs_{result.group_b}.png".replace(" ", "_")
+    return send_file(_as_stream(png), mimetype="image/png",
+                     as_attachment=request.args.get("download") == "1", download_name=name)
+
+
 @app.get("/api/figure/<token>/heatmap.png")
 def download_heatmap(token):
     session = load(token)

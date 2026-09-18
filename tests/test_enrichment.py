@@ -103,7 +103,7 @@ class TestTermLinks:
         ("WP:WP123", "biit.cs.ut.ee"),                        # unknown source falls back to g:Profiler
     ])
     def test_each_source_links_to_its_own_database(self, term_id, expected):
-        term = Term("X", term_id, "name", 0.01, 3, 50, "up")
+        term = Term("X", term_id, "name", 0.01, 3, 50, 100, "up")
         assert expected in term.url
 
 
@@ -112,8 +112,8 @@ class TestPromptLines:
         assert as_prompt_lines([]) == ""
 
     def test_lines_label_direction_and_include_statistics(self):
-        terms = [Term("GO:BP", "GO:0042730", "fibrinolysis", 6.2e-9, 5, 27, "up"),
-                 Term("KEGG", "KEGG:04610", "coagulation", 1e-5, 4, 85, "down")]
+        terms = [Term("GO:BP", "GO:0042730", "fibrinolysis", 6.2e-9, 5, 27, 100, "up"),
+                 Term("KEGG", "KEGG:04610", "coagulation", 1e-5, 4, 85, 100, "down")]
         text = as_prompt_lines(terms)
         assert "higher in the first group" in text and "lower in the first group" in text
         assert "fibrinolysis (GO:BP GO:0042730), p=6.2e-09, 5 of 27 genes" in text

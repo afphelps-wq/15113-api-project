@@ -14,12 +14,12 @@ know nothing about the web:
 |---|---|
 | `rnaseq/io_utils.py` | Read and validate user files; produce clean counts and metadata |
 | `rnaseq/analysis.py` | Filter genes and run the PyDESeq2 comparison |
-| `rnaseq/plots.py` | Render the volcano plot and heatmap as PNG bytes |
+| `rnaseq/plots.py` | Render the volcano, heatmap and enrichment figures as PNG bytes |
 | `rnaseq/enrichment.py` | Ask g:Profiler which pathways are over-represented |
 | `rnaseq/ncbi.py` | Search PubMed and parse the abstracts |
 | `rnaseq/llm.py` | Build the prompt and call OpenAI |
 
-The benefit is testability: 62 tests exercise these modules directly, with no HTTP server and no
+The benefit is testability: 87 tests exercise these modules directly, with no HTTP server and no
 network. The only network calls in the whole project are in `enrichment.py`, `ncbi.py` and `llm.py`.
 
 ## 1. Reading the files (`io_utils.py`)
@@ -169,6 +169,42 @@ liver-versus-pancreas tissue signature, which is exactly what these samples are.
 
 The enriched terms are also passed into the OpenAI prompt, so the summary can describe processes
 rather than reciting gene names.
+
+### Drawing the enrichment (three ways)
+
+The results can be read as a dot plot, a bar plot or an enrichment network. These follow the
+conventions of [clusterProfiler](https://bioconductor.org/packages/clusterProfiler/)'s `enrichplot`,
+the reference tool for these figures in R, so they are familiar from published papers. They are
+drawn in Python rather than by calling R: clusterProfiler would mean installing R plus three
+Bioconductor packages, and it would also replace g:Profiler with its own enrichment statistics.
+
+**Dot plot.** Gene ratio on the x-axis (how much of the submitted list fell in the term), dot size
+for the number of genes found, colour for the adjusted p-value. Each direction gets its own panel
+and its own one-hue ramp — reds for genes that went up, blues for genes that went down — so colour
+depth carries significance while the hue still says which way the genes moved.
+
+**Bar plot.** Terms ranked by `-log10` adjusted p-value, labelled with genes found over term size.
+
+**Enrichment network (`emapplot`).** Each pathway is a node; two nodes are joined when they share
+genes, with the edge weighted by the Jaccard index of their gene sets. Clusters of edges mark groups
+of pathways describing the same underlying biology — on the demo data, the drug-metabolism terms
+form one cluster and the extracellular matrix terms another.
+
+This is why `enrichment.py` asks g:Profiler for evidence codes (`no_evidences: False`). The response
+carries one entry per submitted gene, in the order we sent them, and a non-empty entry means that
+gene is in the term — which is how each term's gene set is recovered.
+
+**Two layout bugs worth knowing about.** The network is positioned with a Fruchterman-Reingold
+force-directed layout written out in `_spring_layout`, rather than adding a graph library for one
+figure. The first version produced a completely empty figure: the diagonal of the distance matrix
+was set to infinity so a node would not repel itself, but the attraction term multiplies distance by
+weight, and the self-weight is zero — and `0 * inf` is NaN, which spread to every coordinate. The
+diagonal is now finite and self-pairs are masked out instead.
+
+The second version drew nodes but stacked connected ones on top of each other, leaving the labels an
+unreadable pile. Force-directed layouts place clusters, not labels, so `_separate` now runs
+afterwards and pushes apart any two nodes whose circles overlap, using a radius that includes the
+space the label needs.
 
 ## 5. Finding the literature (`ncbi.py`)
 
