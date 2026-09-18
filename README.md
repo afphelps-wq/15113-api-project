@@ -9,6 +9,8 @@ retrieved.
 The goal is to let a wet-lab researcher go from a count matrix to an annotated, literature-backed
 gene list without writing any code.
 
+![The app's interface: step list, upload panel and live dataset statistics](docs/interface.png)
+
 ![Volcano plot of metastatic vs primary pancreatic tumours](docs/volcano.png)
 
 ![Clustered heatmap showing liver genes high in metastases and pancreatic genes high in primary tumours](docs/heatmap.png)

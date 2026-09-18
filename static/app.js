@@ -20,7 +20,7 @@ function clearMessages() { $("messages").replaceChildren(); }
 
 function busy(on, text = "Working…") {
   $("busy-text").textContent = text;
-  $("busy").classList.toggle("hidden", !on);
+  $("busy").classList.toggle("is-hidden", !on);
 }
 
 async function api(url, options) {
@@ -40,6 +40,70 @@ function fillSelect(select, values, { placeholder = null } = {}) {
   select.replaceChildren();
   if (placeholder !== null) select.append(new Option(placeholder, ""));
   for (const [value, label] of values) select.append(new Option(label, value));
+}
+
+/* ---------- panels and sidebar navigation -------------------------------- */
+
+const navItem = (panelId) => document.querySelector(`.nav-item[data-target="${panelId}"]`);
+
+/** Make a panel reachable in the sidebar without showing it yet. */
+function unlock(panelId) {
+  $(panelId).classList.remove("is-hidden");
+  navItem(panelId)?.classList.remove("is-locked");
+}
+
+/** Reveal a panel, mark it current, and scroll to it. */
+function reveal(panelId) {
+  unlock(panelId);
+  setCurrent(panelId);
+  $(panelId).scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setCurrent(panelId) {
+  for (const item of document.querySelectorAll(".nav-item")) {
+    item.classList.toggle("is-active", item.dataset.target === panelId);
+  }
+}
+
+for (const item of document.querySelectorAll(".nav-item")) {
+  item.onclick = (event) => {
+    event.preventDefault();
+    const panel = $(item.dataset.target);
+    if (!panel || panel.classList.contains("is-hidden")) return;
+    setCurrent(item.dataset.target);
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+}
+
+/* Keep the sidebar in step with whichever panel the reader is looking at. */
+const spy = new IntersectionObserver((entries) => {
+  const visible = entries.filter((e) => e.isIntersecting)
+    .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+  if (visible) setCurrent(visible.target.id);
+}, { rootMargin: "-25% 0px -60% 0px", threshold: [0.1, 0.5] });
+
+for (const panel of document.querySelectorAll(".panel")) spy.observe(panel);
+
+/* ---------- right rail ---------------------------------------------------- */
+
+function setDataset(nSamples, nGenes) {
+  $("stat-samples").textContent = nSamples.toLocaleString();
+  $("stat-genes").textContent = nGenes.toLocaleString();
+  $("rail-title").textContent = "Dataset loaded";
+  $("rail-sub").textContent = `${nSamples.toLocaleString()} samples ready to compare`;
+}
+
+function setOutcome(data) {
+  $("stat-up").textContent = data.n_up.toLocaleString();
+  $("stat-down").textContent = data.n_down.toLocaleString();
+  $("outcome-empty").classList.add("is-hidden");
+  $("outcome-figures").classList.remove("is-hidden");
+  const note = $("outcome-note");
+  note.textContent = `${data.group_a} vs ${data.group_b} · ` +
+    `${data.n_genes_tested.toLocaleString()} genes tested`;
+  note.classList.remove("is-hidden");
+  $("rail-title").textContent = `${data.group_a} vs ${data.group_b}`;
+  $("rail-sub").textContent = `${data.n_a} vs ${data.n_b} samples`;
 }
 
 /* ---------- step 1: upload ----------------------------------------------- */
@@ -66,13 +130,13 @@ $("upload-btn").onclick = async () => {
     $("dataset-summary").innerHTML =
       `<strong>${data.n_samples.toLocaleString()}</strong> samples and ` +
       `<strong>${data.n_genes.toLocaleString()}</strong> genes loaded.`;
+    setDataset(data.n_samples, data.n_genes);
     data.warnings.forEach((w) => showMessage(w, "warn"));
 
     fillSelect($("column-select"), data.columns.map((c) => [c.name, c.name]));
     fillSelect($("batch-select"), data.columns.map((c) => [c.name, c.name]), { placeholder: "None" });
     onColumnChange();
-    $("step-setup").classList.remove("hidden");
-    $("step-setup").scrollIntoView({ behavior: "smooth", block: "start" });
+    reveal("panel-setup");
   } catch (error) {
     showMessage(error.message);
   } finally {
@@ -157,10 +221,10 @@ function renderResults(data) {
   $("download-csv").href = `/api/results/${state.session}.csv?t=${state.stamp}`;
   refreshHeatmap();
 
-  $("step-results").classList.remove("hidden");
-  $("step-pathways").classList.remove("hidden");
-  $("step-interpret").classList.remove("hidden");
-  $("step-results").scrollIntoView({ behavior: "smooth", block: "start" });
+  setOutcome(data);
+  reveal("panel-results");
+  unlock("panel-pathways");
+  unlock("panel-interpret");
 }
 
 /* Volcano and heatmap are two views of the same analysis, so they share a tab strip. */
@@ -171,10 +235,10 @@ function refreshHeatmap() {
   $("download-heatmap").href = `${url}&download=1`;
 }
 
-for (const tab of document.querySelectorAll(".tab")) {
+for (const tab of document.querySelectorAll(".seg")) {
   tab.onclick = () => {
     const wanted = tab.dataset.figure;
-    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
+    document.querySelectorAll(".seg").forEach((t) => t.classList.toggle("is-active", t === tab));
     $("volcano").hidden = wanted !== "volcano";
     $("heatmap").hidden = wanted !== "heatmap";
     $("heatmap-genes-field").hidden = wanted !== "heatmap";
@@ -220,7 +284,7 @@ $("enrich-btn").onclick = async () => {
         `<td><span class="tag ${term.direction}">${term.direction}</span></td>`);
       body.append(tr);
     }
-    $("pathways").classList.toggle("hidden", data.terms.length === 0);
+    $("pathways").classList.toggle("is-hidden", data.terms.length === 0);
   } catch (error) {
     showMessage(error.message);
   } finally {
@@ -290,7 +354,7 @@ function renderEvidence(evidence) {
     }
     list.append(block);
   }
-  $("evidence").classList.remove("hidden");
+  $("evidence").classList.remove("is-hidden");
 }
 
 $("interpret-btn").onclick = async () => {
@@ -314,7 +378,7 @@ $("interpret-btn").onclick = async () => {
     footnote.textContent = `Generated by ${data.model}. These are hypotheses from the retrieved ` +
       `abstracts, not conclusions — check the sources before relying on them.`;
     box.append(footnote);
-    box.classList.remove("hidden");
+    box.classList.remove("is-hidden");
     renderEvidence(data.evidence);
   } catch (error) {
     // The server still returns the PubMed results when only the model call failed
@@ -323,4 +387,14 @@ $("interpret-btn").onclick = async () => {
   } finally {
     busy(false);
   }
+};
+
+/* ---------- about ---------------------------------------------------------- */
+
+$("help-btn").onclick = () => {
+  clearMessages();
+  showMessage("Upload a count matrix and sample metadata, pick two groups, and the app runs " +
+    "DESeq2, finds enriched pathways via g:Profiler, and summarises the literature from PubMed. " +
+    "Your counts never leave this machine. Demo files are in the repository's demo_data folder.",
+    "warn");
 };

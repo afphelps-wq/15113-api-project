@@ -3,172 +3,296 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bulk RNA-seq Explorer</title>
+<title>RNA-seq Explorer</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<header>
-  <h1>Bulk RNA-seq Explorer</h1>
-  <p class="sub">Upload a count matrix, compare two groups of samples, and see which genes differ &mdash;
-     with supporting literature from PubMed.</p>
-</header>
 
-<main>
-  <!-- Step 1 ---------------------------------------------------------------->
-  <section class="card" id="step-upload">
-    <h2><span class="step">1</span> Upload your data</h2>
-    <div class="grid">
-      <label class="field">
-        <span>Count matrix <small>(CSV or TSV: genes in rows, samples in columns)</small></span>
-        <input type="file" id="counts-file" accept=".csv,.tsv,.txt">
-      </label>
-      <label class="field">
-        <span>Sample metadata <small>(CSV or TSV: one row per sample, with group columns)</small></span>
-        <input type="file" id="metadata-file" accept=".csv,.tsv,.txt">
-      </label>
-    </div>
-    <p class="hint">Counts must be raw read counts, not normalized values (TPM, FPKM or CPM).
-       Estimated counts with decimals are rounded automatically.</p>
-    <button id="upload-btn" class="primary">Load files</button>
-    <p class="hint demo">No data to hand? The repository includes
-       <code>demo_data/demo_counts.csv</code> and <code>demo_data/demo_metadata.csv</code>
-       &mdash; 60 pancreatic tumour samples from GEO series GSE205154.</p>
-  </section>
+<div class="shell">
 
-  <!-- Step 2 ---------------------------------------------------------------->
-  <section class="card hidden" id="step-setup">
-    <h2><span class="step">2</span> Choose the comparison</h2>
-    <p id="dataset-summary" class="summary"></p>
-    <div class="grid">
-      <label class="field">
-        <span>Group samples by</span>
-        <select id="column-select"></select>
-      </label>
-      <label class="field">
-        <span>Adjust for batch <small>(optional)</small></span>
-        <select id="batch-select"><option value="">None</option></select>
-      </label>
-      <label class="field">
-        <span>Compare</span>
-        <select id="group-a"></select>
-      </label>
-      <label class="field">
-        <span>Against <small>(reference)</small></span>
-        <select id="group-b"></select>
-      </label>
-      <label class="field">
-        <span>Adjusted p-value below</span>
-        <input type="number" id="padj" value="0.05" min="0.000001" max="1" step="0.01">
-      </label>
-      <label class="field">
-        <span>|log<sub>2</sub> fold change| above</span>
-        <input type="number" id="lfc" value="1" min="0" step="0.5">
-      </label>
+  <!-- Sidebar ================================================================= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="wordmark">RNA<em>seq</em></span>
+      <button class="icon-btn" id="help-btn" type="button" aria-label="About this app" title="About this app">?</button>
     </div>
-    <button id="analyze-btn" class="primary">Run differential expression</button>
-    <p class="hint">Positive fold changes mean higher expression in the first group.</p>
-  </section>
 
-  <!-- Step 3 ---------------------------------------------------------------->
-  <section class="card hidden" id="step-results">
-    <h2><span class="step">3</span> Results</h2>
-    <p id="result-summary" class="summary"></p>
-    <div class="actions">
-      <a id="download-csv" class="button" download>Download full results (CSV)</a>
-      <a id="download-png" class="button" download>Download volcano plot (PNG)</a>
-      <a id="download-heatmap" class="button" download>Download heatmap (PNG)</a>
-    </div>
-    <div class="figure-tabs" role="tablist">
-      <button class="tab active" data-figure="volcano" role="tab">Volcano plot</button>
-      <button class="tab" data-figure="heatmap" role="tab">Heatmap</button>
-      <label class="inline-field" id="heatmap-genes-field" hidden>
-        Genes shown
-        <select id="heatmap-genes">
-          <option>20</option><option selected>30</option><option>50</option><option>80</option>
-        </select>
-      </label>
-    </div>
-    <img id="volcano" alt="Volcano plot of differential expression results">
-    <img id="heatmap" hidden
-         alt="Clustered heatmap of the most significant genes across all samples">
-    <div class="table-wrap">
-      <table id="results-table">
-        <thead><tr><th>Gene</th><th>log<sub>2</sub>FC</th><th>Adjusted p</th>
-                   <th>Mean expression</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <p class="hint">Showing up to 50 genes. The CSV contains every tested gene.</p>
-  </section>
+    <nav class="nav" aria-label="Analysis steps">
+      <a class="nav-item is-active" data-target="panel-upload" href="#panel-upload">
+        <span class="nav-dot"></span> Upload data <span class="chev">&rsaquo;</span>
+      </a>
+      <a class="nav-item is-locked" data-target="panel-setup" href="#panel-setup">
+        <span class="nav-dot"></span> Comparison <span class="chev">&rsaquo;</span>
+      </a>
+      <a class="nav-item is-locked" data-target="panel-results" href="#panel-results">
+        <span class="nav-dot"></span> Results <span class="chev">&rsaquo;</span>
+      </a>
+      <a class="nav-item is-locked" data-target="panel-pathways" href="#panel-pathways">
+        <span class="nav-dot"></span> Pathways <span class="chev">&rsaquo;</span>
+      </a>
+      <a class="nav-item is-locked" data-target="panel-interpret" href="#panel-interpret">
+        <span class="nav-dot"></span> Interpretation <span class="chev">&rsaquo;</span>
+      </a>
+    </nav>
 
-  <!-- Step 4 ---------------------------------------------------------------->
-  <section class="card hidden" id="step-pathways">
-    <h2><span class="step">4</span> Pathways</h2>
-    <p class="summary">Asks g:Profiler which biological processes and pathways are over-represented
-       among the significant genes, tested against the genes your experiment actually measured.</p>
-    <div class="grid">
-      <label class="field">
-        <span>Species</span>
-        <select id="organism">
-          <option value="human">Human</option>
-          <option value="mouse">Mouse</option>
-        </select>
-      </label>
+    <div class="sources">
+      <div class="sources-head">
+        <span class="eyebrow">Connected</span>
+        <h2>Data sources</h2>
+      </div>
+      <ul class="source-list">
+        <li class="source">
+          <span class="source-icon">PM</span>
+          <span class="source-text"><strong>PubMed</strong><small>NCBI E-utilities &middot; no key needed</small></span>
+        </li>
+        <li class="source">
+          <span class="source-icon">gP</span>
+          <span class="source-text"><strong>g:Profiler</strong><small>Pathways &middot; no key needed</small></span>
+        </li>
+        <li class="source">
+          <span class="source-icon">AI</span>
+          <span class="source-text"><strong>OpenAI</strong><small>Summaries &middot; key required</small></span>
+        </li>
+      </ul>
     </div>
-    <button id="enrich-btn" class="primary">Find enriched pathways</button>
-    <div id="pathways" class="hidden">
+  </aside>
+
+  <!-- Workspace =============================================================== -->
+  <main class="workspace">
+    <header class="page-head">
+      <div>
+        <span class="eyebrow">Bulk differential expression</span>
+        <h1>RNA-seq Explorer</h1>
+      </div>
+      <p class="lede">Upload a count matrix, compare two groups of samples, and see which genes
+        differ &mdash; with pathways and published evidence for the strongest hits.</p>
+    </header>
+
+    <div id="messages"></div>
+
+    <!-- 1. Upload -->
+    <section class="panel" id="panel-upload">
+      <div class="panel-head">
+        <h2><span class="step">1</span> Upload your data</h2>
+      </div>
+      <div class="grid">
+        <label class="field">
+          <span>Count matrix <small>CSV or TSV &middot; genes in rows, samples in columns</small></span>
+          <input type="file" id="counts-file" accept=".csv,.tsv,.txt">
+        </label>
+        <label class="field">
+          <span>Sample metadata <small>CSV or TSV &middot; one row per sample</small></span>
+          <input type="file" id="metadata-file" accept=".csv,.tsv,.txt">
+        </label>
+      </div>
+      <p class="note">Counts must be raw reads, not normalized values (TPM, FPKM or CPM).
+         Estimated counts with decimals are rounded for you.</p>
+      <div class="panel-foot">
+        <button id="upload-btn" class="btn btn-primary" type="button">Load files</button>
+        <span class="foot-hint">Try <code>demo_data/</code> &mdash; 60 pancreatic tumour samples from GSE205154</span>
+      </div>
+    </section>
+
+    <!-- 2. Comparison -->
+    <section class="panel is-hidden" id="panel-setup">
+      <div class="panel-head">
+        <h2><span class="step">2</span> Choose the comparison</h2>
+        <p id="dataset-summary" class="panel-meta"></p>
+      </div>
+      <div class="grid">
+        <label class="field">
+          <span>Group samples by</span>
+          <select id="column-select"></select>
+        </label>
+        <label class="field">
+          <span>Adjust for batch <small>optional</small></span>
+          <select id="batch-select"><option value="">None</option></select>
+        </label>
+        <label class="field">
+          <span>Compare</span>
+          <select id="group-a"></select>
+        </label>
+        <label class="field">
+          <span>Against <small>reference</small></span>
+          <select id="group-b"></select>
+        </label>
+        <label class="field">
+          <span>Adjusted p-value below</span>
+          <input type="number" id="padj" value="0.05" min="0.000001" max="1" step="0.01">
+        </label>
+        <label class="field">
+          <span>|log<sub>2</sub> fold change| above</span>
+          <input type="number" id="lfc" value="1" min="0" step="0.5">
+        </label>
+      </div>
+      <div class="panel-foot">
+        <button id="analyze-btn" class="btn btn-primary" type="button">Run differential expression</button>
+        <span class="foot-hint">Positive fold changes mean higher in the first group</span>
+      </div>
+    </section>
+
+    <!-- 3. Results -->
+    <section class="panel is-hidden" id="panel-results">
+      <div class="panel-head">
+        <h2><span class="step">3</span> Results</h2>
+        <div class="segmented" role="tablist">
+          <button class="seg is-active" data-figure="volcano" role="tab" type="button">Volcano</button>
+          <button class="seg" data-figure="heatmap" role="tab" type="button">Heatmap</button>
+        </div>
+      </div>
+
+      <p id="result-summary" class="panel-meta"></p>
+
+      <div class="figure-wrap">
+        <img id="volcano" alt="Volcano plot of differential expression results">
+        <img id="heatmap" hidden alt="Clustered heatmap of the most significant genes across all samples">
+        <label class="inline-field" id="heatmap-genes-field" hidden>
+          Genes shown
+          <select id="heatmap-genes">
+            <option>20</option><option selected>30</option><option>50</option><option>80</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="actions">
+        <a id="download-csv" class="btn btn-ghost" download>Results (CSV)</a>
+        <a id="download-png" class="btn btn-ghost" download>Volcano (PNG)</a>
+        <a id="download-heatmap" class="btn btn-ghost" download>Heatmap (PNG)</a>
+      </div>
+
       <div class="table-wrap">
-        <table id="pathways-table">
-          <thead><tr><th>Pathway or process</th><th>Source</th><th>Genes</th>
-                     <th>Corrected p</th><th>Direction</th></tr></thead>
+        <table id="results-table">
+          <thead><tr><th>Gene</th><th>log<sub>2</sub>FC</th><th>Adjusted p</th>
+                     <th>Mean expression</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
-      <p class="hint">Enrichment uses g:Profiler's g:SCS correction. No API key is required.</p>
+      <p class="note">Showing up to 50 genes. The CSV contains every tested gene.</p>
+    </section>
+
+    <!-- 4. Pathways -->
+    <section class="panel is-hidden" id="panel-pathways">
+      <div class="panel-head">
+        <h2><span class="step">4</span> Pathways</h2>
+        <p class="panel-meta">Which biological processes are over-represented among the significant
+          genes, tested against the genes your experiment actually measured.</p>
+      </div>
+      <div class="grid grid-narrow">
+        <label class="field">
+          <span>Species</span>
+          <select id="organism">
+            <option value="human">Human</option>
+            <option value="mouse">Mouse</option>
+          </select>
+        </label>
+      </div>
+      <div class="panel-foot">
+        <button id="enrich-btn" class="btn btn-primary" type="button">Find enriched pathways</button>
+        <span class="foot-hint">g:Profiler &middot; GO, KEGG and Reactome &middot; no API key</span>
+      </div>
+      <div id="pathways" class="is-hidden">
+        <div class="table-wrap">
+          <table id="pathways-table">
+            <thead><tr><th>Pathway or process</th><th>Source</th><th>Genes</th>
+                       <th>Corrected p</th><th>Direction</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Interpretation -->
+    <section class="panel is-hidden" id="panel-interpret">
+      <div class="panel-head">
+        <h2><span class="step">5</span> Literature &amp; interpretation</h2>
+        <p class="panel-meta">Searches PubMed for the strongest genes, then asks a language model to
+          interpret the results using only those abstracts and the pathways above.</p>
+      </div>
+      <div class="grid">
+        <label class="field">
+          <span>Research context <small>added to every PubMed search</small></span>
+          <input type="text" id="disease" value="pancreatic cancer" placeholder="e.g. breast cancer">
+        </label>
+        <label class="field">
+          <span>Genes per direction</span>
+          <input type="number" id="n-genes" value="7" min="1" max="15">
+        </label>
+        <label class="field">
+          <span>OpenAI API key <small>optional if set in .env</small></span>
+          <input type="password" id="api-key" placeholder="sk-&hellip;" autocomplete="off">
+        </label>
+      </div>
+      <p class="privacy">Only gene symbols, fold changes and p-values are sent to PubMed,
+         g:Profiler and OpenAI. Your counts and sample names never leave this computer.</p>
+      <div class="panel-foot">
+        <button id="interpret-btn" class="btn btn-primary" type="button">Fetch literature and interpret</button>
+      </div>
+      <div id="summary" class="summary-box is-hidden"></div>
+      <details id="evidence" class="is-hidden">
+        <summary>Sources used</summary>
+        <div id="evidence-list"></div>
+      </details>
+    </section>
+  </main>
+
+  <!-- Right rail ============================================================== -->
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="avatar" aria-hidden="true">RS</div>
+      <div>
+        <strong id="rail-title">No dataset loaded</strong>
+        <small id="rail-sub">Upload a count matrix to begin</small>
+      </div>
     </div>
-  </section>
 
-  <!-- Step 5 ---------------------------------------------------------------->
-  <section class="card hidden" id="step-interpret">
-    <h2><span class="step">5</span> Literature context</h2>
-    <p class="summary">Searches PubMed for each of the strongest genes, then asks a language model
-       to interpret the results using only those abstracts.</p>
-    <div class="grid">
-      <label class="field">
-        <span>Research context <small>(added to every PubMed search)</small></span>
-        <input type="text" id="disease" value="pancreatic cancer" placeholder="e.g. breast cancer">
-      </label>
-      <label class="field">
-        <span>Genes per direction</span>
-        <input type="number" id="n-genes" value="7" min="1" max="15">
-      </label>
-      <label class="field">
-        <span>OpenAI API key <small>(optional if set in .env)</small></span>
-        <input type="password" id="api-key" placeholder="sk-…" autocomplete="off">
-      </label>
+    <div class="tiles">
+      <div class="tile">
+        <span class="tile-icon">S</span>
+        <b id="stat-samples">&mdash;</b>
+        <small>Samples</small>
+      </div>
+      <div class="tile">
+        <span class="tile-icon">G</span>
+        <b id="stat-genes">&mdash;</b>
+        <small>Genes</small>
+      </div>
     </div>
-    <p class="hint privacy">Only gene symbols, fold changes and p-values are sent to PubMed,
-       g:Profiler and OpenAI. Your counts and sample names never leave this computer.</p>
-    <button id="interpret-btn" class="primary">Fetch literature and interpret</button>
-    <div id="summary" class="summary-box hidden"></div>
-    <details id="evidence" class="hidden">
-      <summary>Sources used</summary>
-      <div id="evidence-list"></div>
-    </details>
-  </section>
-</main>
 
-<div id="messages"></div>
+    <div class="card" id="card-outcome">
+      <div class="card-head">
+        <h3>Differential expression</h3>
+      </div>
+      <p class="card-empty" id="outcome-empty">Run a comparison to see how many genes changed.</p>
+      <div class="split is-hidden" id="outcome-figures">
+        <div class="split-half">
+          <span class="dot dot-up"></span>
+          <b id="stat-up">&mdash;</b>
+          <small>higher</small>
+        </div>
+        <div class="split-half">
+          <span class="dot dot-down"></span>
+          <b id="stat-down">&mdash;</b>
+          <small>lower</small>
+        </div>
+      </div>
+      <p class="card-foot is-hidden" id="outcome-note"></p>
+    </div>
 
-<div id="busy" class="hidden">
-  <div class="spinner"></div>
-  <p id="busy-text">Working&hellip;</p>
+    <div class="card card-quiet">
+      <h3>Reading the results</h3>
+      <p>Bulk RNA-seq measures whatever tissue was in the sample. When two groups come from
+         different organs, much of the difference is tissue composition rather than disease biology.</p>
+    </div>
+  </aside>
+
 </div>
 
-<footer>
-  <p>Your counts and sample names stay on this machine. Only gene symbols and summary statistics are
-     sent to external services (PubMed and OpenAI) when you ask for literature context.</p>
-</footer>
+<div id="busy" class="is-hidden">
+  <div class="busy-card">
+    <div class="spinner"></div>
+    <p id="busy-text">Working&hellip;</p>
+  </div>
+</div>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
