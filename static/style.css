@@ -181,7 +181,24 @@ code {
 .grid-narrow { grid-template-columns: minmax(180px, 260px); }
 
 .field { display: flex; flex-direction: column; gap: 6px; font-size: .88rem; font-weight: 600; }
+.field > span { display: block; }   /* block, not flex: keeps <sub> inline inside the label */
 .field small { display: block; font-weight: 400; color: var(--ink-3); font-size: .78rem; margin-top: 2px; }
+
+/* Some labels carry a second line ("optional", "reference") and some don't, which would leave
+   the inputs in a row sitting at different heights. Subgrid makes every label in a row share
+   one height, so the boxes line up however the text wraps. */
+@supports (grid-template-rows: subgrid) {
+  .grid > .field {
+    display: grid;
+    grid-row: span 2;
+    grid-template-rows: subgrid;
+    row-gap: 6px;
+  }
+}
+/* Fallback for browsers without subgrid: reserve room for the optional second line. */
+@supports not (grid-template-rows: subgrid) {
+  .field > span { min-height: 2.7em; }
+}
 .field input, .field select {
   padding: 11px 13px;
   border: 1px solid transparent;
@@ -214,6 +231,13 @@ code {
   text-decoration: none; cursor: pointer;
   transition: filter .15s ease, background .15s ease;
 }
+/* One focus style everywhere, instead of the browser's default ring. */
+.btn:focus-visible, .seg:focus-visible, .icon-btn:focus-visible,
+.nav-item:focus-visible, #evidence summary:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-primary:hover { filter: brightness(1.07); }
 .btn-primary:disabled { background: #c6c2e6; cursor: not-allowed; }
