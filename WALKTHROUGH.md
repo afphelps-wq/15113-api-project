@@ -14,12 +14,12 @@ know nothing about the web:
 |---|---|
 | `rnaseq/io_utils.py` | Read and validate user files; produce clean counts and metadata |
 | `rnaseq/analysis.py` | Filter genes and run the PyDESeq2 comparison |
-| `rnaseq/plots.py` | Render the volcano plot as PNG bytes |
+| `rnaseq/plots.py` | Render the volcano plot and heatmap as PNG bytes |
 | `rnaseq/enrichment.py` | Ask g:Profiler which pathways are over-represented |
 | `rnaseq/ncbi.py` | Search PubMed and parse the abstracts |
 | `rnaseq/llm.py` | Build the prompt and call OpenAI |
 
-The benefit is testability: 54 tests exercise these modules directly, with no HTTP server and no
+The benefit is testability: 62 tests exercise these modules directly, with no HTTP server and no
 network. The only network calls in the whole project are in `enrichment.py`, `ncbi.py` and `llm.py`.
 
 ## 1. Reading the files (`io_utils.py`)
@@ -87,11 +87,20 @@ Thresholds are deliberately **not** applied inside `run_deseq()`. A separate `cl
 labels each gene `up`, `down` or `ns`, which means changing a cutoff does not require refitting the
 model.
 
-## 3. Drawing the plot (`plots.py`)
+## 3. Drawing the figures (`plots.py`)
 
 Matplotlib is set to the `Agg` backend at import time, before `pyplot` is imported. Without this,
-matplotlib tries to open a GUI window and crashes inside a web server process. The plot is returned
-as PNG bytes and never written to disk.
+matplotlib tries to open a GUI window and crashes inside a web server process. Both figures are
+returned as PNG bytes and never written to disk.
+
+**One colour language across both figures.** Red always means higher expression and blue always
+means lower, in the volcano plot and the heatmap alike. The heatmap's group annotation deliberately
+uses two *different* hues (orange and aqua), so "which group is this sample in" can never be
+misread as "is this gene up or down". The heatmap's z-score scale is a diverging ramp: two opposite
+hues with a neutral grey midpoint, because zero means "average for this gene" and should read as
+nothing at all.
+
+### The volcano plot
 
 Two details came directly from looking at the rendered image:
 
@@ -102,6 +111,31 @@ infinity, which breaks the y-axis. The fix clips them to the smallest non-zero v
 unreadable smear. `_label_points()` walks the ranked genes and skips any whose label would land too
 close to one already placed, measuring distance in axes-relative coordinates so the rule holds at any
 data scale.
+
+### The heatmap
+
+The volcano plot shows *which* genes changed; the heatmap shows *how consistently*, one sample at a
+time. That answers a question the volcano cannot: does this comparison actually separate the two
+groups, or is it driven by a handful of samples?
+
+**Each gene is z-scored across samples**, after a log2 transform. Without that, the plot would be
+dominated by a few abundant genes and every other row would look flat. The z-score asks a more
+useful question: is this sample high or low *for this gene*?
+
+**Genes are clustered, samples are not.** Gene clustering uses correlation distance, which groups by
+the shape of the pattern rather than the expression level. Samples stay in group order instead, so
+the two conditions form contiguous blocks — which is what makes a clean split visible, or reveals
+that there isn't one. On the demo data the result is two sharp blocks: liver and drug-metabolism
+genes high in metastases, pancreatic acinar and islet genes high in primaries.
+
+**Constant genes are removed before clustering.** A gene with the same value in every sample has a
+standard deviation of zero, so z-scoring divides by zero, and its correlation with anything else is
+undefined. That crashed `scipy.cluster.hierarchy.linkage` with "The condensed distance matrix must
+contain only finite values." A test now covers it. Such genes carry no information anyway.
+
+**The colour scale is clipped to the 98th percentile** of absolute z-scores rather than the maximum.
+One extreme outlier would otherwise compress every other cell toward the neutral midpoint and wash
+the figure out.
 
 ## 4. Finding the pathways (`enrichment.py`)
 

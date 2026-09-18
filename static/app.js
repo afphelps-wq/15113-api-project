@@ -151,16 +151,41 @@ function renderResults(data) {
     body.append(tr);
   }
 
-  const cacheBuster = Date.now();
-  $("volcano").src = `/api/figure/${state.session}/volcano.png?t=${cacheBuster}`;
-  $("download-png").href = `/api/figure/${state.session}/volcano.png?download=1&t=${cacheBuster}`;
-  $("download-csv").href = `/api/results/${state.session}.csv?t=${cacheBuster}`;
+  state.stamp = Date.now();
+  $("volcano").src = `/api/figure/${state.session}/volcano.png?t=${state.stamp}`;
+  $("download-png").href = `/api/figure/${state.session}/volcano.png?download=1&t=${state.stamp}`;
+  $("download-csv").href = `/api/results/${state.session}.csv?t=${state.stamp}`;
+  refreshHeatmap();
 
   $("step-results").classList.remove("hidden");
   $("step-pathways").classList.remove("hidden");
   $("step-interpret").classList.remove("hidden");
   $("step-results").scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+/* Volcano and heatmap are two views of the same analysis, so they share a tab strip. */
+function refreshHeatmap() {
+  const genes = $("heatmap-genes").value;
+  const url = `/api/figure/${state.session}/heatmap.png?genes=${genes}&t=${state.stamp}`;
+  $("heatmap").src = url;
+  $("download-heatmap").href = `${url}&download=1`;
+}
+
+for (const tab of document.querySelectorAll(".tab")) {
+  tab.onclick = () => {
+    const wanted = tab.dataset.figure;
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
+    $("volcano").hidden = wanted !== "volcano";
+    $("heatmap").hidden = wanted !== "heatmap";
+    $("heatmap-genes-field").hidden = wanted !== "heatmap";
+  };
+}
+
+$("heatmap-genes").onchange = refreshHeatmap;
+
+$("heatmap").onerror = () => {
+  if (!$("heatmap").hidden) showMessage("The heatmap could not be drawn for this comparison.");
+};
 
 /* ---------- step 4: pathway enrichment ----------------------------------- */
 

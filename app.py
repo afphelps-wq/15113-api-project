@@ -212,6 +212,24 @@ def download_volcano(token):
                      as_attachment=request.args.get("download") == "1", download_name=name)
 
 
+@app.get("/api/figure/<token>/heatmap.png")
+def download_heatmap(token):
+    session = load(token)
+    if "table" not in session:
+        raise ValidationError("Run the analysis before downloading the figure.")
+    result = session["result"]
+    top_n = max(5, min(int(request.args.get("genes", 30)), 100))
+    significant = session["table"][session["table"]["regulation"] != "ns"]
+    try:
+        png = plots.heatmap(result.normalized, significant if len(significant) >= 5 else session["table"],
+                            result.conditions, result.group_a, result.group_b, top_n=top_n)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    name = f"heatmap_{result.group_a}_vs_{result.group_b}.png".replace(" ", "_")
+    return send_file(_as_stream(png), mimetype="image/png",
+                     as_attachment=request.args.get("download") == "1", download_name=name)
+
+
 def _as_stream(data):
     return io.BytesIO(data)
 

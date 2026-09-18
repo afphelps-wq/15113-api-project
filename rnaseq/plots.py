@@ -5,8 +5,22 @@ import matplotlib
 matplotlib.use("Agg")                      # no GUI: required when running inside a web server
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.patches import Patch
+from scipy.cluster.hierarchy import leaves_list, linkage
 
-COLORS = {"up": "#c0392b", "down": "#2471a3", "ns": "#b8bfc7"}
+# One colour system across both figures. Red and blue always mean expression direction: red is
+# higher, blue is lower. The group annotation on the heatmap deliberately uses two different hues
+# so that "which group" is never confused with "which direction".
+COLORS = {"up": "#e34948", "down": "#2a78d6", "ns": "#c3c2b7"}
+GROUP_COLORS = ["#eb6834", "#1baf7a"]      # orange, aqua
+NEUTRAL = "#f0efec"
+TEXT = "#52514e"
+
+# Diverging ramp for z-scores: two opposite hues with a neutral grey midpoint, equal steps per arm.
+EXPRESSION_CMAP = LinearSegmentedColormap.from_list("expression", [
+    "#104281", "#2a78d6", "#9ec5f4", NEUTRAL, "#f3a3a2", "#e34948", "#8c2322"])
+
 MAX_LABELS = 12
 
 
@@ -69,4 +83,65 @@ def volcano(table, group_a, group_b, padj_cutoff=0.05, lfc_cutoff=1.0, label_top
               frameon=False, markerscale=1.8, borderaxespad=0)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
+    return _to_png(fig)
+
+
+def heatmap(normalized, table, conditions, group_a, group_b, top_n=30):
+    """Clustered heatmap of the most significant genes.
+
+    Each gene is z-scored across samples, so the colour shows whether a sample is high or low
+    *for that gene* rather than how abundant the gene is. Genes are clustered so similar
+    patterns sit together; samples stay grouped by condition, which is what makes a clean
+    split visible (or reveals that there isn't one).
+    """
+    ranked = [g for g in table["gene"] if g in normalized.index][:top_n]
+    if len(ranked) < 2:
+        raise ValueError("Not enough significant genes to draw a heatmap.")
+
+    # Samples ordered by group, so the two conditions form contiguous blocks
+    order = [s for s in conditions.index if conditions[s] == group_a] + \
+            [s for s in conditions.index if conditions[s] == group_b]
+    order = [s for s in order if s in normalized.columns]
+    data = np.log2(normalized.loc[ranked, order] + 1)
+
+    # A gene with the same value in every sample has nothing to show, and its correlation with
+    # anything else is undefined, which would break the clustering below.
+    spread = data.std(axis=1)
+    data = data[spread > 0]
+    if len(data) < 2:
+        raise ValueError("Not enough significant genes vary between samples to draw a heatmap.")
+    z = data.sub(data.mean(axis=1), axis=0).div(data.std(axis=1), axis=0)
+
+    # Cluster genes on their z-scored profiles; correlation distance groups by shape, not level
+    if len(z) > 2:
+        z = z.iloc[leaves_list(linkage(z.to_numpy(), method="average", metric="correlation"))]
+
+    limit = float(np.nanpercentile(np.abs(z.to_numpy()), 98)) or 1.0   # symmetric, outlier-robust
+    height = max(4.0, 0.22 * len(z) + 2.2)
+    fig, (bar_ax, ax) = plt.subplots(
+        2, 1, figsize=(max(7.0, 0.11 * len(order) + 3.4), height),
+        gridspec_kw={"height_ratios": [1, max(12, len(z))], "hspace": 0.02})
+
+    counts = {group_a: order.count(group_a), group_b: 0}
+    group_index = [0 if conditions[s] == group_a else 1 for s in order]
+    bar_ax.imshow([group_index], aspect="auto", interpolation="nearest",
+                  cmap=LinearSegmentedColormap.from_list("groups", GROUP_COLORS, N=2))
+    bar_ax.set_axis_off()
+    bar_ax.legend(handles=[Patch(facecolor=GROUP_COLORS[0], label=group_a),
+                           Patch(facecolor=GROUP_COLORS[1], label=group_b)],
+                  loc="lower left", bbox_to_anchor=(0, 1.4), ncol=2, fontsize=8,
+                  frameon=False, borderaxespad=0)
+
+    image = ax.imshow(z.to_numpy(), aspect="auto", interpolation="nearest",
+                      cmap=EXPRESSION_CMAP, vmin=-limit, vmax=limit)
+    ax.set_yticks(range(len(z)), z.index, fontsize=7, color=TEXT)
+    ax.set_xticks([])
+    ax.set_xlabel(f"{len(order)} samples, grouped by condition", fontsize=8, color=TEXT)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    bar = fig.colorbar(image, ax=[bar_ax, ax], fraction=0.035, pad=0.02)
+    bar.set_label("expression relative to the gene's mean (z-score)", fontsize=8, color=TEXT)
+    bar.ax.tick_params(labelsize=7, colors=TEXT)
+    bar.outline.set_visible(False)
     return _to_png(fig)

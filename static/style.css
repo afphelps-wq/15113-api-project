@@ -73,7 +73,27 @@ button.primary:disabled { background: #b6c2d1; cursor: not-allowed; }
 .summary { margin: 0 0 1rem; color: var(--muted); }
 .summary strong { color: var(--ink); }
 
-#volcano { width: 100%; max-width: 640px; display: block; margin: 1.25rem auto; }
+#volcano, #heatmap { width: 100%; max-width: 640px; display: block; margin: 1.25rem auto; }
+#heatmap { max-width: 760px; }
+
+.figure-tabs {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  margin-top: 1.25rem; border-bottom: 1px solid var(--line);
+}
+.tab {
+  border: 0; background: none; cursor: pointer;
+  padding: .5rem .75rem; margin-bottom: -1px;
+  font: inherit; font-size: .9rem; color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+.inline-field {
+  margin-left: auto; font-size: .82rem; color: var(--muted);
+  display: flex; align-items: center; gap: .4rem;
+}
+.inline-field select {
+  padding: .2rem .35rem; border: 1px solid var(--line); border-radius: 4px; font: inherit;
+}
 
 .table-wrap { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
 table { width: 100%; border-collapse: collapse; font-size: .9rem; }

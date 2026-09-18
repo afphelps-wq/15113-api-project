@@ -76,8 +76,21 @@
     <div class="actions">
       <a id="download-csv" class="button" download>Download full results (CSV)</a>
       <a id="download-png" class="button" download>Download volcano plot (PNG)</a>
+      <a id="download-heatmap" class="button" download>Download heatmap (PNG)</a>
+    </div>
+    <div class="figure-tabs" role="tablist">
+      <button class="tab active" data-figure="volcano" role="tab">Volcano plot</button>
+      <button class="tab" data-figure="heatmap" role="tab">Heatmap</button>
+      <label class="inline-field" id="heatmap-genes-field" hidden>
+        Genes shown
+        <select id="heatmap-genes">
+          <option>20</option><option selected>30</option><option>50</option><option>80</option>
+        </select>
+      </label>
     </div>
     <img id="volcano" alt="Volcano plot of differential expression results">
+    <img id="heatmap" hidden
+         alt="Clustered heatmap of the most significant genes across all samples">
     <div class="table-wrap">
       <table id="results-table">
         <thead><tr><th>Gene</th><th>log<sub>2</sub>FC</th><th>Adjusted p</th>

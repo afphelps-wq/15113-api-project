@@ -9,9 +9,14 @@ from pydeseq2.ds import DeseqStats
 from .io_utils import ValidationError
 
 
+HEATMAP_GENE_POOL = 300            # normalized counts kept for plotting, most significant first
+
+
 @dataclass
 class DEResult:
     table: pd.DataFrame            # one row per tested gene; log2FoldChange is group_a vs group_b
+    normalized: pd.DataFrame       # genes x samples, size-factor normalized, top genes only
+    conditions: pd.Series          # sample -> group label, for annotating plots
     column: str
     group_a: str                   # numerator: positive log2FC means higher in this group
     group_b: str                   # reference group
@@ -97,7 +102,17 @@ def run_deseq(counts, meta, column, group_a, group_b, batch=None, min_count=10, 
 
     table = (stats.results_df.rename_axis("gene").reset_index()
              .sort_values("padj", na_position="last", kind="stable").reset_index(drop=True))
-    return DEResult(table=table, column=column, group_a=str(group_a), group_b=str(group_b),
+
+    # Size-factor normalized counts make samples comparable to each other; keep only the most
+    # significant genes, since that is all the heatmap can show and the full matrix is large.
+    normalized = pd.DataFrame(dds.layers["normed_counts"],
+                              index=sub_counts.index, columns=sub_counts.columns)
+    keep = [g for g in table["gene"].head(HEATMAP_GENE_POOL) if g in normalized.columns]
+    normalized = normalized[keep].T                       # back to genes x samples for plotting
+
+    return DEResult(table=table, normalized=normalized,
+                    conditions=design_meta["condition"],
+                    column=column, group_a=str(group_a), group_b=str(group_b),
                     batch=batch if "batch" in design_meta else None, n_a=n_a, n_b=n_b,
                     n_genes_input=n_input, n_genes_tested=sub_counts.shape[1], warnings=notes)
 

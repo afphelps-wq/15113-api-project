@@ -11,6 +11,8 @@ gene list without writing any code.
 
 ![Volcano plot of metastatic vs primary pancreatic tumours](docs/volcano.png)
 
+![Clustered heatmap showing liver genes high in metastases and pancreatic genes high in primary tumours](docs/heatmap.png)
+
 ## How the APIs are called
 
 The app calls three public APIs with the `requests` and `openai` Python modules. For each of the top
@@ -107,8 +109,10 @@ instructed to raise it — which it does unprompted in the generated summary.
 2. **Compare** any two groups from a metadata column, optionally adjusting for a batch column.
    Differential expression runs through [PyDESeq2](https://pydeseq2.readthedocs.io/), a Python port
    of DESeq2, after filtering genes with too few reads to test.
-3. **Review** the ranked gene table and volcano plot; download the full results as CSV or the figure
-   as PNG.
+3. **Review** the ranked gene table, the volcano plot, and a clustered heatmap of the most
+   significant genes; download the full results as CSV or either figure as PNG. The heatmap
+   z-scores each gene across samples and clusters genes by pattern, so it shows whether the two
+   groups actually separate — and which samples disagree with their group.
 4. **Find pathways** over-represented among the significant genes, using g:Profiler (GO biological
    process, KEGG and Reactome), tested against the genes the experiment actually measured.
 5. **Interpret** the top genes with PubMed abstracts and an AI summary that cites the PMIDs it used.
@@ -143,14 +147,14 @@ app.py                  Flask routes (upload, analyze, enrich, interpret, downlo
 rnaseq/
   io_utils.py           parsing, validation, gene labels, sample alignment
   analysis.py           gene filtering and the PyDESeq2 comparison
-  plots.py              volcano plot rendered server-side as PNG
+  plots.py              volcano plot and clustered heatmap, rendered server-side as PNG
   enrichment.py         g:Profiler pathway and GO enrichment (no key needed)
   ncbi.py               PubMed esearch/efetch client and rate limiter
   llm.py                prompt construction and the OpenAI call
 templates/, static/     single-page interface, plain JavaScript
 demo_data/              committed 60-sample subset of GSE205154
 scripts/                how the demo subset was built
-tests/                  54 tests, including a biology sanity check
+tests/                  62 tests, including a biology sanity check
 ```
 
 [`WALKTHROUGH.md`](WALKTHROUGH.md) explains how the pieces fit together and why the trickier parts
