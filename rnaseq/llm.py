@@ -13,7 +13,11 @@ import os
 from openai import OpenAI, OpenAIError
 
 DEFAULT_MODEL = "gpt-5-mini"        # $0.25/M input, $2/M output: a run costs well under a cent
-MAX_OUTPUT_TOKENS = 1400
+
+# gpt-5 models spend output tokens on internal reasoning before writing anything, so the cap has
+# to cover both. At 1400 the reasoning used the whole budget and the reply came back empty.
+MAX_OUTPUT_TOKENS = 4000
+REASONING_EFFORT = "low"            # this is summarisation, not a problem that needs deep reasoning
 
 SYSTEM_PROMPT = """\
 You are helping a wet-lab researcher interpret a bulk RNA-seq differential expression result.
@@ -85,12 +89,17 @@ def summarize(evidence, comparison, disease_term, n_up, n_down, n_tested,
             instructions=SYSTEM_PROMPT,
             input=payload,
             max_output_tokens=MAX_OUTPUT_TOKENS,
+            reasoning={"effort": REASONING_EFFORT},
         )
     except OpenAIError as exc:
         raise RuntimeError(f"The OpenAI request failed: {_readable(exc)}") from exc
 
     text = (response.output_text or "").strip()
     if not text:
+        reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
+        if reason == "max_output_tokens":
+            raise RuntimeError("The model ran out of output tokens before writing a summary. "
+                               "Try fewer genes per direction.")
         raise RuntimeError("The model returned an empty response. Please try again.")
     usage = getattr(response, "usage", None)
     return {
