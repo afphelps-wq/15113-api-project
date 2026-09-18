@@ -95,6 +95,112 @@ def volcano(table, group_a, group_b, padj_cutoff=0.05, lfc_cutoff=1.0, label_top
     return _to_png(fig)
 
 
+def ma_plot(table, group_a, group_b, lfc_cutoff=1.0, label_top=MAX_LABELS):
+    """MA plot: mean expression (log scale) against log2 fold change.
+
+    A healthy result is a cloud centred on zero at every expression level. A cloud that bends
+    away from zero at low or high expression points to an intensity-dependent bias, such as a
+    normalization problem, which the volcano plot cannot show.
+    """
+    data = table.dropna(subset=["log2FoldChange", "baseMean"])
+    data = data[data["baseMean"] > 0].copy()
+    data["_x"] = np.log10(data["baseMean"])
+
+    fig, ax = plt.subplots(figsize=(7.5, 6))
+    for regulation in ("ns", "down", "up"):
+        subset = data[data["regulation"] == regulation]
+        ax.scatter(subset["_x"], subset["log2FoldChange"], s=9, alpha=0.6,
+                   c=COLORS[regulation], edgecolors="none",
+                   label=f"{regulation} ({len(subset):,})" if regulation != "ns"
+                   else f"not significant ({len(subset):,})")
+
+    ax.axhline(0, color="#52514e", lw=0.9)
+    for y in (-lfc_cutoff, lfc_cutoff):
+        ax.axhline(y, color="#7f8c8d", lw=0.8, ls="--")
+
+    # Running median of the fold change: should hug zero if there is no intensity bias
+    if len(data) > 200:
+        ordered = data.sort_values("_x")
+        window = max(51, len(ordered) // 40)
+        trend = ordered["log2FoldChange"].rolling(window, center=True, min_periods=window // 3).median()
+        ax.plot(ordered["_x"], trend, color="#15151c", lw=1.4, label="running median")
+
+    # Label the strongest hits, reusing the volcano's collision rule
+    labelled = data[data["regulation"] != "ns"].rename(columns={"_x": "_plotx"})
+    _label_points_xy(ax, labelled, "_plotx", "log2FoldChange", label_top)
+
+    ax.set_xlabel("mean expression  (log$_{10}$ normalized counts)")
+    ax.set_ylabel(f"log$_2$ fold change  ({group_a} vs {group_b})")
+    ax.set_title(f"{group_a} vs {group_b}", fontsize=12, pad=26)
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.01), ncol=4, fontsize=8,
+              frameon=False, markerscale=1.8, borderaxespad=0)
+    ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    return _to_png(fig)
+
+
+def _label_points_xy(ax, candidates, x, y, limit):
+    """Label points in ranked order, skipping any that would crowd an existing label."""
+    if candidates.empty:
+        return
+    x_range = max(float(candidates[x].max() - candidates[x].min()), 1e-9)
+    y_range = max(float(candidates[y].abs().max()) * 2, 1e-9)
+    placed = []
+    for _, row in candidates.iterrows():
+        if len(placed) >= limit:
+            break
+        px, py = row[x] / x_range, row[y] / y_range
+        if any(abs(px - qx) < 0.06 and abs(py - qy) < 0.035 for qx, qy in placed):
+            continue
+        placed.append((px, py))
+        ax.annotate(row["gene"], (row[x], row[y]), fontsize=7,
+                    xytext=(4, 3), textcoords="offset points", color="#2c3e50")
+
+
+# Categorical colours for the PCA. Red and blue are kept for expression direction, so identity
+# uses orange, aqua and violet - validated for colour-blind separation across all pairs, which a
+# scatter needs. Beyond three categories the rest fold into "Other" rather than inventing hues.
+PCA_COLORS = ["#eb6834", "#1baf7a", "#4a3aa7"]
+PCA_OTHER = "#b9b9c4"
+PCA_MARKERS = ["o", "s", "^", "D"]       # shape as well as colour, so identity never rests on colour
+
+
+def pca_plot(pca, variance, labels, title, method=""):
+    """Samples on the first two principal components, coloured by a metadata column.
+
+    `labels` maps each sample to the category it should be coloured by.
+    """
+    labels = labels.reindex(pca.index).fillna("missing").astype(str)
+    counts = labels.value_counts()
+    shown = list(counts.index[:len(PCA_COLORS)])
+    folded = [c for c in counts.index if c not in shown]
+    groups = [(name, [name]) for name in shown]
+    if folded:
+        groups.append((f"Other ({', '.join(folded[:3])}{'…' if len(folded) > 3 else ''})", folded))
+
+    fig, ax = plt.subplots(figsize=(7.5, 6))
+    for i, (name, members) in enumerate(groups):
+        mask = labels.isin(members)
+        colour = PCA_COLORS[i] if i < len(PCA_COLORS) else PCA_OTHER
+        ax.scatter(pca.loc[mask, "PC1"], pca.loc[mask, "PC2"], s=58, c=colour,
+                   marker=PCA_MARKERS[i % len(PCA_MARKERS)],
+                   edgecolors="white", linewidths=1.2, alpha=0.92, zorder=3,
+                   label=f"{name}  (n={int(mask.sum())})")
+
+    ax.axhline(0, color=NEUTRAL, lw=0.9, zorder=0)
+    ax.axvline(0, color=NEUTRAL, lw=0.9, zorder=0)
+    ax.set_xlabel(f"PC1  ({variance[0] * 100:.1f}% of variance)")
+    ax.set_ylabel(f"PC2  ({variance[1] * 100:.1f}% of variance)")
+    ax.set_title(title, fontsize=12, pad=26 + 12 * ((len(groups) - 1) // 2))
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.01), ncol=2, fontsize=8,
+              frameon=False, borderaxespad=0, handletextpad=0.4)
+    if method:
+        ax.text(1, -0.12, method, transform=ax.transAxes, ha="right", fontsize=7, color=TEXT)
+    ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    return _to_png(fig)
+
+
 def heatmap(normalized, table, conditions, group_a, group_b, top_n=30):
     """Clustered heatmap of the most significant genes.
 

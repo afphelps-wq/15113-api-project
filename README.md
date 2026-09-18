@@ -15,6 +15,8 @@ gene list without writing any code.
 
 ![Clustered heatmap showing liver genes high in metastases and pancreatic genes high in primary tumours](docs/heatmap.png)
 
+![PCA coloured by tissue: liver metastases separate on PC1, while other metastases sit with the primaries](docs/pca.png)
+
 ![Enrichment network: drug-metabolism pathways cluster together, separately from extracellular matrix pathways](docs/pathway_network.png)
 
 ## How the APIs are called
@@ -102,7 +104,10 @@ oxidations and complement/coagulation cascades come up (liver functions), while 
 and protein digestion go down.
 
 It is also a useful warning. A bulk RNA-seq comparison between samples from **different organs**
-largely measures tissue composition, not tumour biology. The interface says so, and the model is
+largely measures tissue composition, not tumour biology. The PCA shows this most directly: coloured
+by tissue, the first component (44.5% of variance) separates the **liver** metastases from
+everything else, while lung, peritoneal and omental metastases sit alongside the pancreatic
+primaries. The "Met vs Primary" difference is mostly the liver samples. The interface says so, and the model is
 instructed to raise it — which it does unprompted in the generated summary.
 
 ## What the app does
@@ -113,10 +118,16 @@ instructed to raise it — which it does unprompted in the generated summary.
 2. **Compare** any two groups from a metadata column, optionally adjusting for a batch column.
    Differential expression runs through [PyDESeq2](https://pydeseq2.readthedocs.io/), a Python port
    of DESeq2, after filtering genes with too few reads to test.
-3. **Review** the ranked gene table, the volcano plot, and a clustered heatmap of the most
-   significant genes; download the full results as CSV or either figure as PNG. The heatmap
-   z-scores each gene across samples and clusters genes by pattern, so it shows whether the two
-   groups actually separate — and which samples disagree with their group.
+3. **Review** the ranked gene table and four figures, each downloadable as PNG:
+   - **Volcano plot** — log2 fold change against −log10 adjusted p-value, to pick out the strongest
+     up- and down-regulated genes.
+   - **MA plot** — mean expression against log2 fold change, with a running median, to check for
+     intensity-dependent bias. A healthy result stays centred on zero at every expression level.
+   - **Heatmap** — the top genes z-scored across samples and clustered, to show whether the groups
+     separate consistently and which samples disagree with their group.
+   - **PCA** — the samples on their first two principal components, from variance-stabilized counts
+     of the 500 most variable genes (as in DESeq2's `plotPCA`). Colour it by any metadata column to
+     see what really drives the variation.
 4. **Find pathways** over-represented among the significant genes, using g:Profiler (GO biological
    process, KEGG and Reactome), tested against the genes the experiment actually measured. Results
    can be read as a **dot plot**, a **bar plot**, an **enrichment network** or a table, following
@@ -157,14 +168,14 @@ app.py                  Flask routes (upload, analyze, enrich, interpret, downlo
 rnaseq/
   io_utils.py           parsing, validation, gene labels, sample alignment
   analysis.py           gene filtering and the PyDESeq2 comparison
-  plots.py              volcano, heatmap and the three enrichment figures, as PNG
+  plots.py              volcano, MA, heatmap, PCA and the enrichment figures, as PNG
   enrichment.py         g:Profiler pathway and GO enrichment (no key needed)
   ncbi.py               PubMed esearch/efetch client and rate limiter
   llm.py                prompt construction and the OpenAI call
 templates/, static/     single-page interface, plain JavaScript
 demo_data/              committed 60-sample subset of GSE205154
 scripts/                how the demo subset was built
-tests/                  87 tests, including a biology sanity check
+tests/                  100 tests, including a biology sanity check
 ```
 
 [`WALKTHROUGH.md`](WALKTHROUGH.md) explains how the pieces fit together and why the trickier parts

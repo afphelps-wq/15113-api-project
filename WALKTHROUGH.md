@@ -14,12 +14,12 @@ know nothing about the web:
 |---|---|
 | `rnaseq/io_utils.py` | Read and validate user files; produce clean counts and metadata |
 | `rnaseq/analysis.py` | Filter genes and run the PyDESeq2 comparison |
-| `rnaseq/plots.py` | Render the volcano, heatmap and enrichment figures as PNG bytes |
+| `rnaseq/plots.py` | Render the volcano, MA, heatmap, PCA and enrichment figures as PNG bytes |
 | `rnaseq/enrichment.py` | Ask g:Profiler which pathways are over-represented |
 | `rnaseq/ncbi.py` | Search PubMed and parse the abstracts |
 | `rnaseq/llm.py` | Build the prompt and call OpenAI |
 
-The benefit is testability: 87 tests exercise these modules directly, with no HTTP server and no
+The benefit is testability: 100 tests exercise these modules directly, with no HTTP server and no
 network. The only network calls in the whole project are in `enrichment.py`, `ncbi.py` and `llm.py`.
 
 ## 1. Reading the files (`io_utils.py`)
@@ -112,6 +112,40 @@ unreadable smear. `_label_points()` walks the ranked genes and skips any whose l
 close to one already placed, measuring distance in axes-relative coordinates so the rule holds at any
 data scale.
 
+### The MA plot
+
+The volcano plot ranks genes; the MA plot checks the analysis itself. It puts mean expression on the
+x-axis and fold change on the y-axis. If normalization worked, the cloud of genes stays centred on
+zero at every expression level. A cloud that bends away from zero at the low or high end is an
+intensity-dependent bias, and the volcano plot cannot show it. A running median of the fold change
+is drawn over the points so the bend, if any, is easy to see; on the demo data it stays flat on zero.
+
+Genes with a mean of exactly zero are dropped before plotting, because `log10(0)` is minus infinity.
+
+### The PCA
+
+The PCA answers the question to ask before trusting any gene list: what actually separates these
+samples? `sample_pca()` in `analysis.py` follows DESeq2's `plotPCA`. It applies the
+variance-stabilizing transform, blind to the design, then keeps the 500 genes that vary most across
+samples and projects the samples onto the first two principal components with an SVD.
+
+**Genes are chosen by variance, not by differential expression.** Picking the DE genes would make
+the groups separate by construction, which turns a check into a foregone conclusion.
+
+**If the transform fails, the PCA still runs.** The VST fit can fail on unusual data, so the code
+falls back to log2 normalized counts and says so in the corner of the figure.
+
+**It can be coloured by any metadata column.** That turned out to matter. Coloured by the
+comparison, the demo data looks like a clean Met/Primary split. Coloured by tissue, the first
+component (44.5% of variance) separates **liver** metastases from everything else, and the other
+metastases sit with the primaries. Two tests assert this.
+
+**Colours.** Red and blue are reserved for expression direction, so sample groups use orange, aqua
+and violet. A scatter plot needs every pair of colours to stay distinct under colour-blindness, not
+just neighbours, and only three categorical colours pass that check. Beyond three, categories fold
+into a grey "Other" rather than adding hues that can't be told apart. Each group also gets a
+different marker shape, so identity never depends on colour alone.
+
 ### The heatmap
 
 The volcano plot shows *which* genes changed; the heatmap shows *how consistently*, one sample at a
@@ -132,6 +166,11 @@ genes high in metastases, pancreatic acinar and islet genes high in primaries.
 standard deviation of zero, so z-scoring divides by zero, and its correlation with anything else is
 undefined. That crashed `scipy.cluster.hierarchy.linkage` with "The condensed distance matrix must
 contain only finite values." A test now covers it. Such genes carry no information anyway.
+
+**A CSS bug hid behind this.** The figures are toggled with the `hidden` attribute, but a rule
+like `#heatmap { display: block }` beats the browser's built-in `[hidden] { display: none }`, so
+"hidden" figures were drawn anyway and stacked under each other. A global
+`[hidden] { display: none !important; }` in `style.css` puts the attribute back in charge.
 
 **The colour scale is clipped to the 98th percentile** of absolute z-scores rather than the maximum.
 One extreme outlier would otherwise compress every other cell toward the neutral midpoint and wash

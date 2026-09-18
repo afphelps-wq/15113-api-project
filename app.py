@@ -104,6 +104,7 @@ def analyze():
     display = significant.head(50) if len(significant) else table.head(50)
     return jsonify({
         "comparison": f"{result.group_a} vs {result.group_b}",
+        "column": result.column,
         "group_a": result.group_a, "group_b": result.group_b,
         "n_a": result.n_a, "n_b": result.n_b,
         "batch": result.batch,
@@ -208,6 +209,38 @@ def download_volcano(token):
     png = plots.volcano(session["table"], result.group_a, result.group_b,
                         cutoffs["padj"], cutoffs["lfc"])
     name = f"volcano_{result.group_a}_vs_{result.group_b}.png".replace(" ", "_")
+    return send_file(_as_stream(png), mimetype="image/png",
+                     as_attachment=request.args.get("download") == "1", download_name=name)
+
+
+@app.get("/api/figure/<token>/ma.png")
+def download_ma(token):
+    session = load(token)
+    if "table" not in session:
+        raise ValidationError("Run the analysis before downloading the figure.")
+    result, cutoffs = session["result"], session["cutoffs"]
+    png = plots.ma_plot(session["table"], result.group_a, result.group_b, cutoffs["lfc"])
+    name = f"MA_{result.group_a}_vs_{result.group_b}.png".replace(" ", "_")
+    return send_file(_as_stream(png), mimetype="image/png",
+                     as_attachment=request.args.get("download") == "1", download_name=name)
+
+
+@app.get("/api/figure/<token>/pca.png")
+def download_pca(token):
+    """PCA of the compared samples, coloured by the comparison or by any metadata column."""
+    session = load(token)
+    if "table" not in session:
+        raise ValidationError("Run the analysis before downloading the figure.")
+    result = session["result"]
+    color_by = request.args.get("color_by") or result.column
+    if color_by == result.column:
+        labels, heading = result.conditions, f"{result.group_a} vs {result.group_b}"
+    elif color_by in session["meta"].columns:
+        labels, heading = session["meta"][color_by].astype("string"), f"Coloured by {color_by}"
+    else:
+        raise ValidationError(f"'{color_by}' is not a column in the metadata.")
+    png = plots.pca_plot(result.pca, result.pca_variance, labels, heading, result.pca_method)
+    name = f"PCA_{result.group_a}_vs_{result.group_b}_by_{color_by}.png".replace(" ", "_")
     return send_file(_as_stream(png), mimetype="image/png",
                      as_attachment=request.args.get("download") == "1", download_name=name)
 

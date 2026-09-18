@@ -137,27 +137,35 @@
         <h2><span class="step">3</span> Results</h2>
         <div class="segmented" role="tablist">
           <button class="seg is-active" data-figure="volcano" role="tab" type="button">Volcano</button>
+          <button class="seg" data-figure="ma" role="tab" type="button">MA</button>
           <button class="seg" data-figure="heatmap" role="tab" type="button">Heatmap</button>
+          <button class="seg" data-figure="pca" role="tab" type="button">PCA</button>
         </div>
       </div>
 
       <p id="result-summary" class="panel-meta"></p>
+      <p id="figure-caption" class="figure-caption"></p>
 
       <div class="figure-wrap">
-        <img id="volcano" alt="Volcano plot of differential expression results">
-        <img id="heatmap" hidden alt="Clustered heatmap of the most significant genes across all samples">
         <label class="inline-field" id="heatmap-genes-field" hidden>
           Genes shown
           <select id="heatmap-genes">
             <option>20</option><option selected>30</option><option>50</option><option>80</option>
           </select>
         </label>
+        <label class="inline-field" id="pca-color-field" hidden>
+          Colour by
+          <select id="pca-color"></select>
+        </label>
+        <img id="volcano" alt="Volcano plot: log2 fold change against adjusted p-value">
+        <img id="ma" hidden alt="MA plot: mean expression against log2 fold change">
+        <img id="heatmap" hidden alt="Clustered heatmap of the most significant genes across all samples">
+        <img id="pca" hidden alt="Principal component analysis of the compared samples">
       </div>
 
       <div class="actions">
         <a id="download-csv" class="btn btn-ghost" download>Results (CSV)</a>
-        <a id="download-png" class="btn btn-ghost" download>Volcano (PNG)</a>
-        <a id="download-heatmap" class="btn btn-ghost" download>Heatmap (PNG)</a>
+        <a id="download-figure" class="btn btn-ghost" download>This figure (PNG)</a>
       </div>
 
       <div class="table-wrap">

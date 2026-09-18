@@ -2,6 +2,7 @@
 import warnings as pywarnings
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 from pydeseq2.dds import DeseqDataSet
 from pydeseq2.ds import DeseqStats
@@ -10,6 +11,7 @@ from .io_utils import ValidationError
 
 
 HEATMAP_GENE_POOL = 300            # normalized counts kept for plotting, most significant first
+PCA_TOP_VARIABLE = 500             # DESeq2's plotPCA default
 
 
 @dataclass
@@ -17,6 +19,9 @@ class DEResult:
     table: pd.DataFrame            # one row per tested gene; log2FoldChange is group_a vs group_b
     normalized: pd.DataFrame       # genes x samples, size-factor normalized, top genes only
     conditions: pd.Series          # sample -> group label, for annotating plots
+    pca: pd.DataFrame              # samples x [PC1, PC2]
+    pca_variance: tuple            # fraction of variance explained by PC1 and PC2
+    pca_method: str                # how expression was transformed before the PCA
     column: str
     group_a: str                   # numerator: positive log2FC means higher in this group
     group_b: str                   # reference group
@@ -108,13 +113,47 @@ def run_deseq(counts, meta, column, group_a, group_b, batch=None, min_count=10, 
     normalized = pd.DataFrame(dds.layers["normed_counts"],
                               index=sub_counts.index, columns=sub_counts.columns)
     keep = [g for g in table["gene"].head(HEATMAP_GENE_POOL) if g in normalized.columns]
+    pca, variance, method = sample_pca(dds, sub_counts, normalized)
     normalized = normalized[keep].T                       # back to genes x samples for plotting
 
     return DEResult(table=table, normalized=normalized,
                     conditions=design_meta["condition"],
+                    pca=pca, pca_variance=variance, pca_method=method,
                     column=column, group_a=str(group_a), group_b=str(group_b),
                     batch=batch if "batch" in design_meta else None, n_a=n_a, n_b=n_b,
                     n_genes_input=n_input, n_genes_tested=sub_counts.shape[1], warnings=notes)
+
+
+def sample_pca(dds, sub_counts, normalized, top_n=PCA_TOP_VARIABLE):
+    """Principal components of the samples, following DESeq2's plotPCA.
+
+    Uses the variance-stabilizing transform and the most variable genes. Genes are chosen by
+    variance across all samples, not by the differential expression result: picking the DE genes
+    would guarantee the groups separate and make the plot meaningless as a check.
+    Returns (samples x [PC1, PC2], (var1, var2), description).
+    """
+    try:
+        with pywarnings.catch_warnings():
+            pywarnings.simplefilter("ignore")
+            dds.vst(use_design=False)       # blind to the design, as plotPCA's default
+        values = pd.DataFrame(dds.layers["vst_counts"],
+                              index=sub_counts.index, columns=sub_counts.columns)
+        method = "variance-stabilized"
+    except Exception:
+        # The VST fit can fail on unusual data; log counts are a reasonable stand-in for a plot
+        values = np.log2(normalized + 1)
+        method = "log2 normalized"
+
+    top = values.var(axis=0).nlargest(min(top_n, values.shape[1])).index
+    centered = values[top].to_numpy() - values[top].to_numpy().mean(axis=0)
+    u, s, _ = np.linalg.svd(centered, full_matrices=False)
+    explained = s ** 2 / (s ** 2).sum() if (s ** 2).sum() > 0 else np.zeros_like(s)
+    n_components = min(2, len(s))
+    coords = np.zeros((len(values), 2))
+    coords[:, :n_components] = u[:, :n_components] * s[:n_components]
+    variance = tuple(float(explained[i]) if i < len(explained) else 0.0 for i in range(2))
+    return (pd.DataFrame(coords, index=values.index, columns=["PC1", "PC2"]), variance,
+            f"{method}, top {len(top)} most variable genes")
 
 
 def classify(table, padj_cutoff=0.05, lfc_cutoff=1.0):

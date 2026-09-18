@@ -49,6 +49,9 @@ code {
 }
 
 .is-hidden { display: none !important; }
+/* Any rule that sets `display` (like `#heatmap { display: block }`) silently beats the browser's
+   own [hidden] style, which made hidden figures show anyway. This puts `hidden` back in charge. */
+[hidden] { display: none !important; }
 
 /* Layout ------------------------------------------------------------------- */
 
@@ -257,6 +260,13 @@ code {
 .seg.is-active { background: var(--accent); color: #fff; }
 
 .figure-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 16px; }
+.figure-caption {
+  margin: 12px 0 0;
+  font-size: .84rem; color: var(--ink-2);
+  border-left: 3px solid var(--accent); padding-left: 11px;
+}
+#ma, #pca { display: block; width: 100%; max-width: 660px; margin: 0 auto;
+            border-radius: var(--r-sm); background: #fff; }
 #volcano, #heatmap {
   display: block; width: 100%; max-width: 660px;
   margin: 0 auto; border-radius: var(--r-sm); background: #fff;

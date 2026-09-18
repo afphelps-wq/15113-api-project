@@ -216,10 +216,11 @@ function renderResults(data) {
   }
 
   state.stamp = Date.now();
-  $("volcano").src = `/api/figure/${state.session}/volcano.png?t=${state.stamp}`;
-  $("download-png").href = `/api/figure/${state.session}/volcano.png?download=1&t=${state.stamp}`;
+  state.comparisonColumn = data.column;
   $("download-csv").href = `/api/results/${state.session}.csv?t=${state.stamp}`;
-  refreshHeatmap();
+  fillPcaColors();
+  for (const name of Object.keys(FIGURES)) delete $(name).dataset.loaded;
+  showFigure(state.figure || "volcano");
 
   setOutcome(data);
   reveal("panel-results");
@@ -227,29 +228,78 @@ function renderResults(data) {
   unlock("panel-interpret");
 }
 
-/* Volcano and heatmap are two views of the same analysis, so they share a tab strip. */
-function refreshHeatmap() {
-  const genes = $("heatmap-genes").value;
-  const url = `/api/figure/${state.session}/heatmap.png?genes=${genes}&t=${state.stamp}`;
-  $("heatmap").src = url;
-  $("download-heatmap").href = `${url}&download=1`;
+/* Four views of the same analysis share one tab strip and one download button.
+   Each figure is fetched the first time its tab is opened, not all at once. */
+const FIGURES = {
+  volcano: {
+    url: () => "volcano.png?",
+    caption: "Fold change against significance. Points far left or right and high up are the " +
+      "strongest changes.",
+  },
+  ma: {
+    url: () => "ma.png?",
+    caption: "Fold change against mean expression. The black running median should hug zero; " +
+      "a curve away from zero at low or high expression suggests a normalization bias.",
+  },
+  heatmap: {
+    url: () => `heatmap.png?genes=${$("heatmap-genes").value}&`,
+    control: "heatmap-genes-field",
+    caption: "Each gene z-scored across samples and clustered. Shows whether the groups separate " +
+      "consistently, sample by sample.",
+  },
+  pca: {
+    url: () => `pca.png?color_by=${encodeURIComponent($("pca-color").value)}&`,
+    control: "pca-color-field",
+    caption: "Overall similarity between samples, from the 500 most variable genes. Colour by " +
+      "another column to see what else drives the variation.",
+  },
+};
+
+function figureUrl(name) {
+  return `/api/figure/${state.session}/${FIGURES[name].url()}t=${state.stamp}`;
 }
 
-for (const tab of document.querySelectorAll(".seg")) {
-  tab.onclick = () => {
-    const wanted = tab.dataset.figure;
-    document.querySelectorAll(".seg").forEach((t) => t.classList.toggle("is-active", t === tab));
-    $("volcano").hidden = wanted !== "volcano";
-    $("heatmap").hidden = wanted !== "heatmap";
-    $("heatmap-genes-field").hidden = wanted !== "heatmap";
+function showFigure(name) {
+  state.figure = name;
+  document.querySelectorAll(".seg[data-figure]")
+    .forEach((t) => t.classList.toggle("is-active", t.dataset.figure === name));
+  for (const [key, figure] of Object.entries(FIGURES)) {
+    $(key).hidden = key !== name;
+    if (figure.control) $(figure.control).hidden = key !== name;
+  }
+  const img = $(name);
+  if (!img.dataset.loaded) {
+    img.src = figureUrl(name);
+    img.dataset.loaded = "1";
+  }
+  $("figure-caption").textContent = FIGURES[name].caption;
+  $("download-figure").href = `${figureUrl(name)}&download=1`;
+}
+
+function reloadFigure(name) {
+  delete $(name).dataset.loaded;
+  if (state.figure === name) showFigure(name);
+}
+
+/* PCA can be coloured by the comparison or by any other grouping column in the metadata. */
+function fillPcaColors() {
+  const others = state.columns.map((c) => c.name).filter((n) => n !== state.comparisonColumn);
+  fillSelect($("pca-color"), [[state.comparisonColumn, `${state.comparisonColumn} (comparison)`],
+                              ...others.map((n) => [n, n])]);
+}
+
+for (const tab of document.querySelectorAll(".seg[data-figure]")) {
+  tab.onclick = () => showFigure(tab.dataset.figure);
+}
+
+$("heatmap-genes").onchange = () => reloadFigure("heatmap");
+$("pca-color").onchange = () => reloadFigure("pca");
+
+for (const name of Object.keys(FIGURES)) {
+  $(name).onerror = () => {
+    if (!$(name).hidden) showMessage("That figure could not be drawn for this comparison.");
   };
 }
-
-$("heatmap-genes").onchange = refreshHeatmap;
-
-$("heatmap").onerror = () => {
-  if (!$("heatmap").hidden) showMessage("The heatmap could not be drawn for this comparison.");
-};
 
 /* ---------- step 4: pathway enrichment ----------------------------------- */
 
