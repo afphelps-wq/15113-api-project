@@ -19,7 +19,7 @@ know nothing about the web:
 | `rnaseq/ncbi.py` | Search PubMed and parse the abstracts |
 | `rnaseq/llm.py` | Build the prompt and call OpenAI |
 
-The benefit is testability: 118 tests exercise these modules directly, with no HTTP server and no
+The benefit is testability: 128 tests exercise these modules directly, with no HTTP server and no
 network. The only network calls in the whole project are in `enrichment.py`, `ncbi.py` and `llm.py`.
 
 ## 1. Reading the files (`io_utils.py`)
@@ -392,7 +392,7 @@ no flash of the wrong theme on load. Storage is wrapped in `try`, because it can
 **The figures.** A white PNG on a dark page is a glaring rectangle, and inverting colours would wreck
 their meaning, so `plots.py` has two `Palette` objects. Dark mode is not a flip of light mode: each
 palette has its own steps, and both were run through a colour-blind and contrast validator against
-the surface they are drawn on (`#ffffff` and `#24242b`, which is also the dark card colour in CSS, so
+the surface they are drawn on (`#ffffff` and `#1b1d22`, which is also the dark card colour in CSS, so
 figures sit flush in their cards). Red and blue still mean up and down; sample groups still use
 orange, aqua and violet. The diverging heatmap ramp reverses its logic: in light mode extremes are
 *darker* than the midpoint, in dark mode they are *brighter*, because in both cases the extreme
@@ -411,6 +411,33 @@ a `theme=` argument. Two process-wide things had to be handled carefully:
 
 The routes read `?theme=` and ignore values they don't recognise. Downloads (`?download=1`) always
 come back light, since a saved figure is usually headed for a paper or slide.
+
+## 10. Changing the design without breaking anything
+
+The interface has been redesigned twice, most recently to a frosted-glass layout: an icon rail for
+the five steps, pastel summary cards across the top, and the steps as dark slabs. The JavaScript did
+not change for that redesign, because the markup kept its side of an explicit contract.
+
+`app.js` finds everything by id, class or data attribute: 48 ids looked up directly, the five panel
+ids and four figure ids reached indirectly, `.nav-item[data-target]` for navigation, `.panel` for the
+scroll-spy (which must mean *only* the five step sections), `.seg[data-figure]` and
+`.seg[data-pathfig]` for the tabs, and the `is-active`, `is-hidden` and `is-locked` classes.
+`tests/test_frontend_contract.py` reads the script and the template and checks every one of those
+still lines up: every id the script asks for exists, each nav item targets a step panel in order,
+each results tab has a matching `<img>`, and every class the script toggles has a style. A redesign
+that renames an id now fails a test instead of silently killing a button.
+
+That contract test proves the pieces exist; `scripts/browser_check.py` proves they work. It drives
+the real page in Chrome through every feature and checks for failed requests and console errors.
+Its first run after the redesign found one: the browser's automatic request for `/favicon.ico`,
+which had been 404ing all along. The fix is an inline SVG icon in `<head>`, so the request is never
+made.
+
+Two design rules carried through both redesigns. Red and blue belong to expression direction
+everywhere; the interface accents (pink for the main action, cyan for links and focus) never use
+them. And the figure card colour in CSS must equal the figure background in `plots.py`, so figures
+sit flush; when the dark card changed to `#1b1d22`, the dark figure palette moved with it and was
+re-validated for colour-blind separation on the new surface.
 
 ## Where to look first
 

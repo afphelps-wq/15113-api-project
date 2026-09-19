@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RNA-seq Explorer</title>
+<!-- Inline icon, so the browser never asks the server for a /favicon.ico it doesn't have -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23d8e4b0'/%3E%3Cstop offset='.5' stop-color='%23bfe3dc'/%3E%3Cstop offset='1' stop-color='%23f3c3cc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Crect x='11' y='8' width='13' height='12' rx='4' fill='%23f7d59a'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <script>
   /* Apply a saved theme before the page paints, so it never flashes the wrong colours.
@@ -18,67 +20,79 @@
 
 <div class="shell">
 
-  <!-- Sidebar ================================================================= -->
-  <aside class="sidebar">
-    <div class="brand">
-      <span class="wordmark">RNA<em>seq</em></span>
-      <div class="brand-actions">
-        <button class="icon-btn" id="theme-btn" type="button" aria-label="Toggle dark mode"
-                aria-pressed="false"></button>
-        <button class="icon-btn" id="help-btn" type="button" aria-label="About this app" title="About this app">?</button>
-      </div>
-    </div>
+  <!-- Icon rail: one button per analysis step ================================ -->
+  <aside class="rail-nav">
+    <div class="logo" aria-hidden="true"><span></span></div>
 
     <nav class="nav" aria-label="Analysis steps">
-      <a class="nav-item is-active" data-target="panel-upload" href="#panel-upload">
-        <span class="nav-dot"></span> Upload data <span class="chev">&rsaquo;</span>
+      <a class="nav-item is-active" data-target="panel-upload" href="#panel-upload" aria-label="Upload data">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+        <span class="nav-label">Upload data</span>
       </a>
-      <a class="nav-item is-locked" data-target="panel-setup" href="#panel-setup">
-        <span class="nav-dot"></span> Comparison <span class="chev">&rsaquo;</span>
+      <a class="nav-item is-locked" data-target="panel-setup" href="#panel-setup" aria-label="Comparison">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        <span class="nav-label">Comparison</span>
       </a>
-      <a class="nav-item is-locked" data-target="panel-results" href="#panel-results">
-        <span class="nav-dot"></span> Results <span class="chev">&rsaquo;</span>
+      <a class="nav-item is-locked" data-target="panel-results" href="#panel-results" aria-label="Results">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+        <span class="nav-label">Results</span>
       </a>
-      <a class="nav-item is-locked" data-target="panel-pathways" href="#panel-pathways">
-        <span class="nav-dot"></span> Pathways <span class="chev">&rsaquo;</span>
+      <a class="nav-item is-locked" data-target="panel-pathways" href="#panel-pathways" aria-label="Pathways">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="10" cy="18" r="2.5"/><path d="M8.3 7 15.6 7.8M7 8.3l2.2 7.3M16.5 10.1l-4.8 6"/></svg>
+        <span class="nav-label">Pathways</span>
       </a>
-      <a class="nav-item is-locked" data-target="panel-interpret" href="#panel-interpret">
-        <span class="nav-dot"></span> Interpretation <span class="chev">&rsaquo;</span>
+      <a class="nav-item is-locked" data-target="panel-interpret" href="#panel-interpret" aria-label="Interpretation">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5M9 8h7M9 12h5"/></svg>
+        <span class="nav-label">Interpretation</span>
       </a>
     </nav>
 
-    <div class="sources">
-      <div class="sources-head">
-        <span class="eyebrow">Connected</span>
-        <h2>Data sources</h2>
-      </div>
-      <ul class="source-list">
-        <li class="source">
-          <span class="source-icon">PM</span>
-          <span class="source-text"><strong>PubMed</strong><small>NCBI E-utilities &middot; no key needed</small></span>
-        </li>
-        <li class="source">
-          <span class="source-icon">gP</span>
-          <span class="source-text"><strong>g:Profiler</strong><small>Pathways &middot; no key needed</small></span>
-        </li>
-        <li class="source">
-          <span class="source-icon">AI</span>
-          <span class="source-text"><strong>OpenAI</strong><small>Summaries &middot; key required</small></span>
-        </li>
-      </ul>
+    <div class="rail-foot">
+      <button class="icon-btn" id="theme-btn" type="button" aria-label="Toggle dark mode"
+              aria-pressed="false"></button>
+      <button class="icon-btn" id="help-btn" type="button" aria-label="About this app" title="About this app">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16.5v-5M12 8h.01"/></svg>
+      </button>
     </div>
   </aside>
 
   <!-- Workspace =============================================================== -->
   <main class="workspace">
-    <header class="page-head">
-      <div>
+    <header class="topbar">
+      <div class="topbar-title">
         <span class="eyebrow">Bulk differential expression</span>
         <h1>RNA-seq Explorer</h1>
       </div>
       <p class="lede">Upload a count matrix, compare two groups of samples, and see which genes
         differ &mdash; with pathways and published evidence for the strongest hits.</p>
     </header>
+
+    <!-- Headline numbers for the loaded dataset and the current comparison -->
+    <section class="stats" aria-label="Dataset summary">
+      <div class="stat stat-sage">
+        <span class="stat-label">Samples<br>loaded</span>
+        <b class="stat-value" id="stat-samples">&mdash;</b>
+        <span class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c.8-2.8 2.7-4 5-4s4.2 1.2 5 4M11 19c.8-2.8 2.7-4 5-4s4.2 1.2 5 4"/></svg>
+        </span>
+      </div>
+      <div class="stat stat-aqua">
+        <span class="stat-label">Genes<br>measured</span>
+        <b class="stat-value" id="stat-genes">&mdash;</b>
+        <span class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M7 3c0 6 10 6 10 12s-10 6-10 6M17 3c0 6-10 6-10 12M8 7h8M8 17h8"/></svg>
+        </span>
+      </div>
+      <div class="stat stat-rose" id="card-outcome">
+        <span class="stat-label">Significant<br>genes</span>
+        <p class="stat-empty" id="outcome-empty">Run a comparison to see how many genes changed.</p>
+        <div class="stat-split is-hidden" id="outcome-figures">
+          <span class="split-part"><span class="dot dot-up"></span><b id="stat-up">&mdash;</b><small>higher</small></span>
+          <span class="split-part"><span class="dot dot-down"></span><b id="stat-down">&mdash;</b><small>lower</small></span>
+        </div>
+        <p class="stat-note is-hidden" id="outcome-note"></p>
+      </div>
+    </section>
 
     <div id="messages"></div>
 
@@ -145,7 +159,7 @@
 
     <!-- 3. Results -->
     <section class="panel is-hidden" id="panel-results">
-      <div class="panel-head">
+      <div class="panel-head panel-head-row">
         <h2><span class="step">3</span> Results</h2>
         <div class="segmented" role="tablist">
           <button class="seg is-active" data-figure="volcano" role="tab" type="button">Volcano</button>
@@ -279,50 +293,40 @@
     </section>
   </main>
 
-  <!-- Right rail ============================================================== -->
-  <aside class="rail">
-    <div class="rail-head">
-      <div class="avatar" aria-hidden="true">RS</div>
-      <div>
-        <strong id="rail-title">No dataset loaded</strong>
-        <small id="rail-sub">Upload a count matrix to begin</small>
-      </div>
+  <!-- Side column ============================================================= -->
+  <aside class="side">
+    <div class="glass comparison-card">
+      <span class="eyebrow">Current comparison</span>
+      <strong class="comparison-title" id="rail-title">No dataset loaded</strong>
+      <small class="comparison-sub" id="rail-sub">Upload a count matrix to begin</small>
     </div>
 
-    <div class="tiles">
-      <div class="tile">
-        <span class="tile-icon">S</span>
-        <b id="stat-samples">&mdash;</b>
-        <small>Samples</small>
-      </div>
-      <div class="tile">
-        <span class="tile-icon">G</span>
-        <b id="stat-genes">&mdash;</b>
-        <small>Genes</small>
-      </div>
+    <div class="glass sources">
+      <h2>Data sources</h2>
+      <span class="eyebrow">No key needed</span>
+      <ul class="source-list">
+        <li class="source">
+          <span class="source-name">PubMed</span>
+          <small>NCBI E-utilities</small>
+          <span class="chip chip-open">Open</span>
+        </li>
+        <li class="source">
+          <span class="source-name">g:Profiler</span>
+          <small>Pathways</small>
+          <span class="chip chip-open">Open</span>
+        </li>
+      </ul>
+      <span class="eyebrow">Key required</span>
+      <ul class="source-list">
+        <li class="source">
+          <span class="source-name">OpenAI</span>
+          <small>Summaries</small>
+          <span class="chip chip-key">Key</span>
+        </li>
+      </ul>
     </div>
 
-    <div class="card" id="card-outcome">
-      <div class="card-head">
-        <h3>Differential expression</h3>
-      </div>
-      <p class="card-empty" id="outcome-empty">Run a comparison to see how many genes changed.</p>
-      <div class="split is-hidden" id="outcome-figures">
-        <div class="split-half">
-          <span class="dot dot-up"></span>
-          <b id="stat-up">&mdash;</b>
-          <small>higher</small>
-        </div>
-        <div class="split-half">
-          <span class="dot dot-down"></span>
-          <b id="stat-down">&mdash;</b>
-          <small>lower</small>
-        </div>
-      </div>
-      <p class="card-foot is-hidden" id="outcome-note"></p>
-    </div>
-
-    <div class="card card-quiet">
+    <div class="glass note-card">
       <h3>Reading the results</h3>
       <p>Bulk RNA-seq measures whatever tissue was in the sample. When two groups come from
          different organs, much of the difference is tissue composition rather than disease biology.</p>

@@ -9,7 +9,7 @@ retrieved.
 The goal is to let a wet-lab researcher go from a count matrix to an annotated, literature-backed
 gene list without writing any code.
 
-![The app's interface: step list, upload panel and live dataset statistics](docs/interface.png)
+![The app's interface: icon rail, pastel summary cards, and the comparison and results steps](docs/interface.png)
 
 ![The same interface in dark mode, with the figures redrawn in a dark palette](docs/interface-dark.png)
 
@@ -89,6 +89,11 @@ the literature step about 20 seconds.
 
 To run the tests: `python -m pytest`
 
+To click through every feature in a real browser (optional; needs `pip install playwright`), start
+the app and run `python scripts/browser_check.py`. It drives your installed Chrome through upload,
+all four result figures, the pathway views, navigation and the theme toggle, and reports anything
+that fails or logs an error. Add `--ai` to include the OpenAI step.
+
 ## The demo dataset
 
 `demo_data/` holds 60 samples (30 primary tumours, 30 metastases) and 22,592 genes, taken from
@@ -137,7 +142,7 @@ instructed to raise it — which it does unprompted in the generated summary.
    `enrichplot` so the figures are familiar from the literature.
 5. **Interpret** the top genes with PubMed abstracts and an AI summary that cites the PMIDs it used.
 
-**Light and dark mode.** The toggle beside the help button switches themes, and the choice is
+**Light and dark mode.** The sun/moon button at the bottom of the icon rail switches themes, and the choice is
 remembered; with no choice made, the app follows your operating system. The figures are redrawn in
 a dark palette too, rather than left as white rectangles — each palette has its own colour steps,
 checked for colour-blind separation and contrast against its own background. Downloaded figures are
@@ -182,8 +187,8 @@ rnaseq/
   llm.py                prompt construction and the OpenAI call
 templates/, static/     single-page interface, plain JavaScript
 demo_data/              committed 60-sample subset of GSE205154
-scripts/                how the demo subset was built
-tests/                  118 tests, including a biology sanity check
+scripts/                how the demo subset was built; an optional browser check
+tests/                  128 tests, including a biology sanity check
 ```
 
 [`WALKTHROUGH.md`](WALKTHROUGH.md) explains how the pieces fit together and why the trickier parts

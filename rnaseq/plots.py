@@ -2,7 +2,7 @@
 
 Every figure can be drawn for a light or a dark page. Dark mode is not an inversion of light mode:
 each palette has its own colour steps, checked for colour-blind separation and contrast against the
-surface it is drawn on (the white card in light mode, #24242b in dark mode).
+surface it is drawn on (the white card in light mode, #1b1d22 in dark mode).
 """
 import contextvars
 import functools
@@ -72,15 +72,15 @@ LIGHT = Palette(
 )
 
 DARK = Palette(
-    name="dark", surface="#24242b", strong="#ececf1", text="#a9a9b6", label="#d6d6de",
-    guide="#6b6b78", neutral="#34343d", edge="#4a4a56",
-    colors={"up": "#e66767", "down": "#3987e5", "ns": "#4b4b55"},
+    name="dark", surface="#1b1d22", strong="#eef0f4", text="#a9aeb8", label="#d6d9df",
+    guide="#6c717c", neutral="#2b2e35", edge="#454954",
+    colors={"up": "#e66767", "down": "#3987e5", "ns": "#4a4e57"},
     groups=("#d95926", "#199e70"),
     categories=("#d95926", "#199e70", "#9085e9"),
-    other="#5d5d68",
+    other="#5c616c",
     # Dark arms brighten toward the extremes, for the same reason in reverse; the midpoint is a
     # dark neutral so an average value reads as nothing against the dark card
-    diverging=_ramp("expression-dark", ["#a6cbf6", "#3987e5", "#1f4a80", "#383840",
+    diverging=_ramp("expression-dark", ["#a6cbf6", "#3987e5", "#1f4a80", "#33363e",
                                         "#7a2a2e", "#e66767", "#f7b3b2"]),
     sequential={"up": _ramp("up-dark", ["#4a2226", "#9c3a3c", "#e66767", "#f7b3b2"]),
                 "down": _ramp("down-dark", ["#1a2c45", "#25589a", "#3987e5", "#a6cbf6"])},
