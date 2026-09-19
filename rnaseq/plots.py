@@ -30,6 +30,11 @@ DIRECTION_CMAPS = {
 }
 DIRECTION_LABELS = {"up": "Higher in {a}", "down": "Lower in {a}"}
 
+# Enrichment figures are drawn at the width they are displayed at (roughly the 700-800px card in
+# the Pathways panel). Drawing them wider and letting the browser shrink them made the pathway
+# names unreadably small.
+ENRICH_WIDTH = 7.4                          # inches; at 150 dpi about 1,100px, shown at ~0.7x
+
 MAX_LABELS = 12
 
 
@@ -316,7 +321,7 @@ def enrichment_dot(terms, group_a, group_b, top_n=10):
 
     heights = [len(items) for _, items in groups]
     fig, axes = plt.subplots(len(groups), 1, squeeze=False,
-                             figsize=(9.5, 1.6 + 0.42 * sum(heights) + 1.1 * len(groups)),
+                             figsize=(ENRICH_WIDTH, 1.6 + 0.46 * sum(heights) + 1.1 * len(groups)),
                              gridspec_kw={"height_ratios": heights})
     axes = axes.ravel()
 
@@ -333,18 +338,18 @@ def enrichment_dot(terms, group_a, group_b, top_n=10):
         dots = ax.scatter(ratios, list(y), s=areas, c=scores, cmap=DIRECTION_CMAPS[direction],
                           edgecolors="white", linewidths=0.8, zorder=3)
 
-        ax.set_yticks(list(y), [_wrap(t.name) for t in items], fontsize=8, color=TEXT)
-        ax.tick_params(axis="x", labelsize=8, colors=TEXT)
+        ax.set_yticks(list(y), [_wrap(t.name, width=32) for t in items], fontsize=9, color=TEXT)
+        ax.tick_params(axis="x", labelsize=9, colors=TEXT)
         ax.grid(axis="x", color=NEUTRAL, linewidth=0.8, zorder=0)
         ax.set_axisbelow(True)
-        ax.set_title(DIRECTION_LABELS[direction].format(a=group_a), fontsize=10, loc="left", pad=8)
+        ax.set_title(DIRECTION_LABELS[direction].format(a=group_a), fontsize=11, loc="left", pad=8)
         ax.margins(x=0.16, y=0.12)
         for spine in ax.spines.values():
             spine.set_visible(False)
 
         bar = fig.colorbar(dots, ax=ax, fraction=0.03, pad=0.015)
-        bar.set_label("$-$log$_{10}$ adjusted p", fontsize=7, color=TEXT)
-        bar.ax.tick_params(labelsize=6, colors=TEXT)
+        bar.set_label("$-$log$_{10}$ adjusted p", fontsize=8, color=TEXT)
+        bar.ax.tick_params(labelsize=7, colors=TEXT)
         bar.outline.set_visible(False)
 
         # Legend for dot size: smallest and largest term in this panel
@@ -354,7 +359,7 @@ def enrichment_dot(terms, group_a, group_b, top_n=10):
         ax.legend(loc="lower right", fontsize=7, frameon=False, labelspacing=1.1,
                   borderpad=0.6, handletextpad=0.9)
 
-    axes[-1].set_xlabel("gene ratio  (term genes found / genes submitted)", fontsize=8, color=TEXT)
+    axes[-1].set_xlabel("gene ratio  (term genes found / genes submitted)", fontsize=9, color=TEXT)
     fig.tight_layout()
     return _to_png(fig)
 
@@ -367,7 +372,7 @@ def enrichment_bar(terms, group_a, group_b, top_n=10):
 
     heights = [len(items) for _, items in groups]
     fig, axes = plt.subplots(len(groups), 1, squeeze=False,
-                             figsize=(9.5, 1.4 + 0.4 * sum(heights) + 1.0 * len(groups)),
+                             figsize=(ENRICH_WIDTH, 1.4 + 0.44 * sum(heights) + 1.0 * len(groups)),
                              gridspec_kw={"height_ratios": heights})
     axes = axes.ravel()
 
@@ -382,11 +387,11 @@ def enrichment_bar(terms, group_a, group_b, top_n=10):
                     f"{term.intersection_size}/{term.term_size}", va="center",
                     fontsize=7, color=TEXT)
 
-        ax.set_yticks(range(len(items)), [_wrap(t.name) for t in items], fontsize=8, color=TEXT)
-        ax.tick_params(axis="x", labelsize=8, colors=TEXT)
+        ax.set_yticks(range(len(items)), [_wrap(t.name, width=32) for t in items], fontsize=9, color=TEXT)
+        ax.tick_params(axis="x", labelsize=9, colors=TEXT)
         ax.grid(axis="x", color=NEUTRAL, linewidth=0.8, zorder=0)
         ax.set_axisbelow(True)
-        ax.set_title(DIRECTION_LABELS[direction].format(a=group_a), fontsize=10, loc="left", pad=8)
+        ax.set_title(DIRECTION_LABELS[direction].format(a=group_a), fontsize=11, loc="left", pad=8)
         ax.margins(x=0.14)
         for spine in ax.spines.values():
             spine.set_visible(False)
@@ -397,7 +402,7 @@ def enrichment_bar(terms, group_a, group_b, top_n=10):
     return _to_png(fig)
 
 
-def _spring_layout(weights, iterations=320, seed=0):
+def _spring_layout(weights, iterations=320, seed=0, gravity=0.0):
     """Force-directed layout (Fruchterman-Reingold).
 
     Every pair of nodes pushes apart with k^2/d, connected nodes pull together with w*d^2/k,
@@ -423,6 +428,10 @@ def _spring_layout(weights, iterations=320, seed=0):
         repulsion = ((1.0 - self_pairs) * k ** 2 / distance)[..., None] * unit
         attraction = (weights * distance ** 2 / k)[..., None] * unit
         step = (repulsion - attraction).sum(axis=1)
+        # Gravity pulls every node toward the centre. Without it, pathways that share no genes
+        # drift to the far corners and, once the layout is scaled to fit, squeeze every real
+        # cluster down to a point.
+        step -= gravity * (pos - pos.mean(axis=0))
         length = np.linalg.norm(step, axis=1, keepdims=True)
         pos += step / np.maximum(length, 1e-9) * np.minimum(length, temperature)
         temperature *= 0.99
@@ -434,31 +443,65 @@ def _normalize(pos):
     return (pos - pos.min(axis=0)) / np.where(span < 1e-9, 1, span)
 
 
-def _separate(pos, radii, iterations=300):
-    """Push overlapping nodes apart.
+# Network labels are laid out in points - the units text is drawn in - so a layout that is free of
+# overlaps on paper stays free of them on the page.
+LABEL_FONT = 8
+CHAR_WIDTH = 0.6          # average glyph width as a fraction of the font size
+LINE_HEIGHT = 1.3
+LABEL_GAP = 3             # points between a dot and its label
+NETWORK_WIDTH = 500       # points; the figure is drawn about this wide so text stays legible
 
-    A force-directed layout places clusters but happily stacks their members, which makes the
-    labels unreadable. Each radius here covers the dot plus the space its label needs.
+
+def _node_boxes(labels, areas):
+    """Each node's footprint in points: the dot, plus its label hanging underneath.
+
+    Returns half-widths, half-heights, and how far each box's centre sits from its dot's centre
+    (negative, because the label is below the dot).
     """
-    pos = pos.copy()
+    radius = np.sqrt(areas / np.pi)
+    lines = [label.split("\n") for label in labels]
+    text_w = np.array([max(len(line) for line in ls) * LABEL_FONT * CHAR_WIDTH for ls in lines])
+    text_h = np.array([len(ls) * LABEL_FONT * LINE_HEIGHT for ls in lines])
+    above = radius                                   # the dot reaches this far up
+    below = radius + LABEL_GAP + text_h              # the dot and its label reach this far down
+    half_w = np.maximum(radius, text_w / 2) + 4
+    half_h = (above + below) / 2 + 3
+    return half_w, half_h, (above - below) / 2
+
+
+def _separate(pos, half_w, half_h, offset=None, iterations=500):
+    """Push apart any two nodes whose footprints overlap.
+
+    A force-directed layout places clusters but stacks their members, so labels collide. Footprints
+    are boxes rather than circles because a label is much wider than it is tall. Each overlapping
+    pair moves along whichever axis needs the smaller shift, which in practice is usually vertical,
+    so the network grows downward instead of getting too wide to read.
+    """
+    pos = np.asarray(pos, dtype=float).copy()
     n = len(pos)
+    offset = np.zeros(n) if offset is None else np.asarray(offset, dtype=float)
     for _ in range(iterations):
         moved = False
         for i in range(n):
             for j in range(i + 1, n):
-                delta = pos[i] - pos[j]
-                distance = float(np.hypot(*delta))
-                minimum = radii[i] + radii[j]
-                if distance < minimum:
-                    if distance < 1e-9:                    # exactly on top of each other
-                        delta, distance = np.array([1e-3, 0.0]), 1e-3
-                    shift = (minimum - distance) / 2 * (delta / distance)
-                    pos[i] += shift
-                    pos[j] -= shift
-                    moved = True
+                dx = pos[i, 0] - pos[j, 0]
+                dy = (pos[i, 1] + offset[i]) - (pos[j, 1] + offset[j])
+                overlap_x = half_w[i] + half_w[j] - abs(dx)
+                overlap_y = half_h[i] + half_h[j] - abs(dy)
+                if overlap_x <= 0 or overlap_y <= 0:
+                    continue
+                moved = True
+                if overlap_x < overlap_y:
+                    shift = overlap_x / 2 + 0.5
+                    pos[i, 0] += shift if dx >= 0 else -shift
+                    pos[j, 0] -= shift if dx >= 0 else -shift
+                else:
+                    shift = overlap_y / 2 + 0.5
+                    pos[i, 1] += shift if dy >= 0 else -shift
+                    pos[j, 1] -= shift if dy >= 0 else -shift
         if not moved:
             break
-    return _normalize(pos)
+    return pos
 
 
 def enrichment_network(terms, group_a, group_b, top_n=12, min_overlap=0.2):
@@ -485,43 +528,57 @@ def enrichment_network(terms, group_a, group_b, top_n=12, min_overlap=0.2):
     weights[weights < min_overlap] = 0
 
     counts = np.array([t.intersection_size for t in chosen], dtype=float)
-    areas = 130 + 900 * (counts / counts.max())
+    areas = 110 + 700 * (counts / counts.max())               # dot area in points^2
+    labels = [_wrap(t.name, width=20, max_lines=3) for t in chosen]
+    half_w, half_h, offset = _node_boxes(labels, areas)
 
-    # Reserve room for each dot and the two lines of label underneath it, in the same
-    # normalized space the layout works in.
-    figure_width_points = 9.5 * 72
-    radii = np.sqrt(areas / np.pi) / figure_width_points + 0.075
+    # Spread the force-directed layout over a canvas in points, then remove every overlap
+    # Gravity 3 and 20pt of height per node were chosen by measuring the result on the demo data:
+    # together they give a roughly square canvas that the overlap pass barely has to adjust.
+    start = _normalize(_spring_layout(weights, gravity=3.0)) * [NETWORK_WIDTH - 110, max(300, 20 * n)]
+    pos = _separate(start, half_w, half_h, offset)
 
-    pos = _separate(_spring_layout(weights), radii)
-    fig, ax = plt.subplots(figsize=(9.5, 7.6))
+    # The canvas is exactly the bounding box of every footprint, so nothing is clipped and one
+    # data unit is one point: dot areas and label sizes come out as they were measured.
+    pad = 10
+    left, right = (pos[:, 0] - half_w).min() - pad, (pos[:, 0] + half_w).max() + pad
+    bottom = (pos[:, 1] + offset - half_h).min() - pad
+    top = (pos[:, 1] + offset + half_h).max() + pad
+    width, height, header = right - left, top - bottom, 46
+    fig = plt.figure(figsize=(width / 72, (height + header) / 72))
+    ax = fig.add_axes([0, 0, 1, height / (height + header)])
+    ax.set_xlim(left, right)
+    ax.set_ylim(bottom, top)
+    ax.set_axis_off()
 
     strongest = weights.max() or 1
     for i in range(n):
         for j in range(i + 1, n):
             if weights[i, j]:
                 ax.plot([pos[i, 0], pos[j, 0]], [pos[i, 1], pos[j, 1]],
-                        color="#c9c9d2", linewidth=0.6 + 3.2 * weights[i, j] / strongest,
+                        color="#c9c9d2", linewidth=0.6 + 3.0 * weights[i, j] / strongest,
                         zorder=1, alpha=0.85, solid_capstyle="round")
 
+    handles = []
     for direction in ("up", "down"):
         index = [i for i, t in enumerate(chosen) if t.direction == direction]
         if index:
-            ax.scatter(pos[index, 0], pos[index, 1], s=areas[index], c=COLORS[direction],
-                       edgecolors="white", linewidths=1.6, zorder=2, alpha=0.92,
-                       label=DIRECTION_LABELS[direction].format(a=group_a))
+            handles.append(ax.scatter(pos[index, 0], pos[index, 1], s=areas[index],
+                                      c=COLORS[direction], edgecolors="white", linewidths=1.4,
+                                      zorder=2, alpha=0.92,
+                                      label=DIRECTION_LABELS[direction].format(a=group_a)))
 
-    for i, term in enumerate(chosen):
-        ax.annotate(_wrap(term.name, width=24, max_lines=2), (pos[i, 0], pos[i, 1]),
-                    fontsize=6.5, ha="center", va="center",
-                    xytext=(0, -np.sqrt(areas[i]) / 2 - 7), textcoords="offset points",
-                    color=TEXT, zorder=3)
+    for i, label in enumerate(labels):
+        # A soft white backing keeps edges that pass behind a label from striking through it
+        ax.annotate(label, (pos[i, 0], pos[i, 1]), fontsize=LABEL_FONT, ha="center", va="top",
+                    xytext=(0, -(np.sqrt(areas[i] / np.pi) + LABEL_GAP)), textcoords="offset points",
+                    color=TEXT, zorder=3, linespacing=1.1,
+                    bbox={"boxstyle": "round,pad=0.12", "fc": "white", "ec": "none", "alpha": 0.8})
 
-    ax.set_axis_off()
-    ax.margins(0.16)
-    ax.legend(loc="upper left", fontsize=8, frameon=False, markerscale=0.45,
-              bbox_to_anchor=(0, 1.02))
-    ax.set_title("Pathways connected where they share genes  "
-                 "(line width = overlap, dot size = genes found)",
-                 fontsize=9, color=TEXT, loc="left", pad=14)
-    fig.tight_layout()
+    fig.text(0.012, 1 - 12 / (height + header), "Pathways connected where they share genes",
+             fontsize=10, color="#15151c", va="top")
+    fig.text(0.012, 1 - 28 / (height + header),
+             "line width = gene overlap   ·   dot size = genes found", fontsize=8, color=TEXT, va="top")
+    fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.99, 1 - 6 / (height + header)),
+               fontsize=8, frameon=False, markerscale=0.5, ncol=len(handles))
     return _to_png(fig)

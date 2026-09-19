@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from rnaseq.enrichment import Term, _genes_in_term
-from rnaseq.plots import (_separate, _split_directions, _spring_layout, enrichment_bar,
+from rnaseq.plots import (_node_boxes, _separate, _split_directions, _spring_layout, enrichment_bar,
                           enrichment_dot, enrichment_network)
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -83,16 +83,61 @@ class TestSpringLayout:
         assert _spring_layout(np.zeros((1, 1))).shape == (1, 2)
 
 
+def _boxes_overlap(pos, half_w, half_h, offset):
+    n = len(pos)
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = abs(pos[i, 0] - pos[j, 0])
+            dy = abs((pos[i, 1] + offset[i]) - (pos[j, 1] + offset[j]))
+            if dx < half_w[i] + half_w[j] - 1e-6 and dy < half_h[i] + half_h[j] - 1e-6:
+                return True
+    return False
+
+
 class TestSeparate:
-    def test_overlapping_nodes_are_pushed_apart(self):
-        pos = np.array([[0.5, 0.5], [0.51, 0.5], [0.9, 0.9]])
-        spread = _separate(pos, np.array([0.1, 0.1, 0.1]))
-        assert np.hypot(*(spread[0] - spread[1])) > np.hypot(*(pos[0] - pos[1]))
+    def test_no_two_footprints_overlap_afterwards(self):
+        """The guarantee that keeps network labels readable."""
+        rng = np.random.default_rng(3)
+        pos = rng.uniform(0, 60, (15, 2))                  # deliberately crowded
+        half_w, half_h, offset = np.full(15, 45.0), np.full(15, 18.0), np.full(15, -10.0)
+        assert _boxes_overlap(pos, half_w, half_h, offset)
+        separated = _separate(pos, half_w, half_h, offset)
+        assert not _boxes_overlap(separated, half_w, half_h, offset)
 
     def test_identical_positions_do_not_divide_by_zero(self):
-        spread = _separate(np.array([[0.5, 0.5], [0.5, 0.5]]), np.array([0.1, 0.1]))
-        assert np.isfinite(spread).all()
-        assert not np.allclose(spread[0], spread[1])
+        pos = np.array([[50.0, 50.0], [50.0, 50.0]])
+        separated = _separate(pos, np.array([20.0, 20.0]), np.array([10.0, 10.0]))
+        assert np.isfinite(separated).all()
+        assert not np.allclose(separated[0], separated[1])
+
+    def test_nodes_already_apart_are_left_alone(self):
+        pos = np.array([[0.0, 0.0], [500.0, 500.0]])
+        assert np.allclose(_separate(pos, np.array([10.0, 10.0]), np.array([10.0, 10.0])), pos)
+
+
+class TestNodeBoxes:
+    def test_long_labels_get_wider_footprints(self):
+        half_w, _, _ = _node_boxes(["short", "a much longer pathway name"], np.array([200.0, 200.0]))
+        assert half_w[1] > half_w[0]
+
+    def test_extra_lines_make_footprints_taller_and_centre_lower(self):
+        _, half_h, offset = _node_boxes(["one line", "two\nlines"], np.array([200.0, 200.0]))
+        assert half_h[1] > half_h[0]
+        assert offset[1] < offset[0] < 0                    # the label hangs below the dot
+
+
+class TestGravity:
+    def test_isolated_nodes_stay_close_to_the_clusters(self):
+        """Without gravity an unconnected node drifts away and squeezes the real clusters."""
+        weights = np.zeros((6, 6))
+        for i, j in [(0, 1), (1, 2), (0, 2), (3, 4)]:       # two clusters and one loner (5)
+            weights[i, j] = weights[j, i] = 0.6
+
+        def loner_distance(gravity):
+            pos = _spring_layout(weights, gravity=gravity)
+            return np.hypot(*(pos[5] - pos[:5].mean(axis=0)))
+
+        assert loner_distance(3.0) < loner_distance(0.0)
 
 
 class TestFigures:

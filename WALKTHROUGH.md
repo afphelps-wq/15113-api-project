@@ -19,7 +19,7 @@ know nothing about the web:
 | `rnaseq/ncbi.py` | Search PubMed and parse the abstracts |
 | `rnaseq/llm.py` | Build the prompt and call OpenAI |
 
-The benefit is testability: 100 tests exercise these modules directly, with no HTTP server and no
+The benefit is testability: 104 tests exercise these modules directly, with no HTTP server and no
 network. The only network calls in the whole project are in `enrichment.py`, `ncbi.py` and `llm.py`.
 
 ## 1. Reading the files (`io_utils.py`)
@@ -233,17 +233,41 @@ This is why `enrichment.py` asks g:Profiler for evidence codes (`no_evidences: F
 carries one entry per submitted gene, in the order we sent them, and a non-empty entry means that
 gene is in the term — which is how each term's gene set is recovered.
 
-**Two layout bugs worth knowing about.** The network is positioned with a Fruchterman-Reingold
-force-directed layout written out in `_spring_layout`, rather than adding a graph library for one
-figure. The first version produced a completely empty figure: the diagonal of the distance matrix
-was set to infinity so a node would not repel itself, but the attraction term multiplies distance by
-weight, and the self-weight is zero — and `0 * inf` is NaN, which spread to every coordinate. The
-diagonal is now finite and self-pairs are masked out instead.
+**Three layout problems worth knowing about.** The network is positioned with a
+Fruchterman-Reingold force-directed layout written out in `_spring_layout`, rather than adding a
+graph library for one figure. Getting it readable took three rounds, each found by looking at the
+rendered image rather than the code:
 
-The second version drew nodes but stacked connected ones on top of each other, leaving the labels an
-unreadable pile. Force-directed layouts place clusters, not labels, so `_separate` now runs
-afterwards and pushes apart any two nodes whose circles overlap, using a radius that includes the
-space the label needs.
+1. **A blank figure.** The diagonal of the distance matrix was set to infinity so a node would not
+   repel itself, but the attraction term multiplies distance by weight, the self-weight is zero, and
+   `0 * inf` is NaN, which spread to every coordinate. The diagonal is now finite and self-pairs are
+   masked out instead.
+2. **Stacked nodes.** Connected nodes landed on top of each other, leaving the labels an unreadable
+   pile. `_separate` now pushes apart any two nodes whose footprints overlap.
+3. **Tall single-file columns.** Fixing (2) exposed the real cause. With no gravity, pathways that
+   share no genes drift to the far corners; scaling the layout to fit then squeezes every real
+   cluster to nearly a point, and the overlap pass could only unstack them in a line. A gravity term
+   pulling nodes toward the centre fixed it. The strength (3.0) and canvas height (20pt per node)
+   were chosen by measuring: at those values the overlap pass barely moves anything (median shift
+   0-5pt, down from 58pt), because the forces are already spacing the nodes.
+
+Two details make the overlap guarantee hold on the page. Footprints are **boxes**, not circles,
+because a label is much wider than it is tall, and each box covers the dot plus the label hanging
+under it (`_node_boxes`). And the whole layout is done in **points**, the unit text is drawn in:
+the canvas is sized to the bounding box of every footprint, so one data unit is exactly one point
+and nothing is rescaled afterwards. The earlier version separated nodes in a normalized space and
+then rescaled it, which quietly squeezed them back together. A test now asserts that no two
+footprints overlap after `_separate`.
+
+### Keeping figures inside their panel
+
+The figures are rendered at 150 dpi, so a PNG is often 1,000-1,400 pixels wide. The volcano,
+heatmap, MA and PCA images had width rules; the pathway figure was added later without one, so it
+displayed at its native size and spilled out under the sidebar and the statistics rail. Rather than
+add one more per-image rule, `style.css` now sizes **every** image inside a `.figure-wrap` card to
+the card's width, and a global `img { max-width: 100% }` means no image can exceed its container.
+The enrichment figures are also drawn at the width they are shown at (`ENRICH_WIDTH`), because
+drawing them wide and letting the browser shrink them made the pathway names too small to read.
 
 ## 5. Finding the literature (`ncbi.py`)
 

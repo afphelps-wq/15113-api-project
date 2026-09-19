@@ -175,7 +175,7 @@ rnaseq/
 templates/, static/     single-page interface, plain JavaScript
 demo_data/              committed 60-sample subset of GSE205154
 scripts/                how the demo subset was built
-tests/                  100 tests, including a biology sanity check
+tests/                  104 tests, including a biology sanity check
 ```
 
 [`WALKTHROUGH.md`](WALKTHROUGH.md) explains how the pieces fit together and why the trickier parts

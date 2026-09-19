@@ -49,6 +49,7 @@ code {
 }
 
 .is-hidden { display: none !important; }
+img { max-width: 100%; height: auto; }   /* safety net: no image may ever exceed its container */
 /* Any rule that sets `display` (like `#heatmap { display: block }`) silently beats the browser's
    own [hidden] style, which made hidden figures show anyway. This puts `hidden` back in charge. */
 [hidden] { display: none !important; }
@@ -259,24 +260,37 @@ code {
 }
 .seg.is-active { background: var(--accent); color: #fff; }
 
-.figure-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 16px; }
+/* Every figure sits in the same white card as the tables, and is scaled to the card's width.
+   The PNGs are rendered at 150 dpi (often 1,400px+ wide), so without a width rule an image
+   shows at its native size and spills out under the sidebar and rail. The rule targets any
+   image in a figure card, so a newly added figure can't be forgotten. */
+.figure-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  margin-top: 16px;
+  background: #fff;
+  border-radius: var(--r-sm);
+  padding: 16px;
+  min-width: 0;
+}
+.figure-wrap img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 700px;                     /* scatter plots read best at a moderate width */
+}
+.figure-wrap img#heatmap,
+.figure-wrap img#pathway-figure { max-width: 820px; }   /* long labels need more room */
+
 .figure-caption {
   margin: 12px 0 0;
   font-size: .84rem; color: var(--ink-2);
   border-left: 3px solid var(--accent); padding-left: 11px;
 }
-#ma, #pca { display: block; width: 100%; max-width: 660px; margin: 0 auto;
-            border-radius: var(--r-sm); background: #fff; }
-#volcano, #heatmap {
-  display: block; width: 100%; max-width: 660px;
-  margin: 0 auto; border-radius: var(--r-sm); background: #fff;
-}
-#heatmap { max-width: 780px; }
 .inline-field {
   order: -1; align-self: flex-end;      /* sits above the figure, never on top of it */
   display: flex; align-items: center; gap: 7px;
   font-size: .78rem; color: var(--ink-3);
-  background: #fff; padding: 6px 10px; border-radius: 999px;
+  background: var(--panel); padding: 6px 10px; border-radius: 999px;
 }
 .inline-field select {
   border: 0; background: var(--panel-2); border-radius: 8px;
