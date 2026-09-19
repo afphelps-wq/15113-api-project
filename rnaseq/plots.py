@@ -1,6 +1,15 @@
-"""Figures rendered server-side as PNG bytes, so the browser only ever receives an image."""
+"""Figures rendered server-side as PNG bytes, so the browser only ever receives an image.
+
+Every figure can be drawn for a light or a dark page. Dark mode is not an inversion of light mode:
+each palette has its own colour steps, checked for colour-blind separation and contrast against the
+surface it is drawn on (the white card in light mode, #24242b in dark mode).
+"""
+import contextvars
+import functools
 import io
 import textwrap
+import threading
+from dataclasses import dataclass
 
 import matplotlib
 matplotlib.use("Agg")                      # no GUI: required when running inside a web server
@@ -10,24 +19,102 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Patch
 from scipy.cluster.hierarchy import leaves_list, linkage
 
-# One colour system across both figures. Red and blue always mean expression direction: red is
-# higher, blue is lower. The group annotation on the heatmap deliberately uses two different hues
-# so that "which group" is never confused with "which direction".
-COLORS = {"up": "#e34948", "down": "#2a78d6", "ns": "#c3c2b7"}
-GROUP_COLORS = ["#eb6834", "#1baf7a"]      # orange, aqua
-NEUTRAL = "#f0efec"
-TEXT = "#52514e"
 
-# Diverging ramp for z-scores: two opposite hues with a neutral grey midpoint, equal steps per arm.
-EXPRESSION_CMAP = LinearSegmentedColormap.from_list("expression", [
-    "#104281", "#2a78d6", "#9ec5f4", NEUTRAL, "#f3a3a2", "#e34948", "#8c2322"])
+@dataclass(frozen=True)
+class Palette:
+    """Every colour a figure uses, for one theme.
 
-# One sequential ramp per direction, light to dark, so significance reads as depth of colour
-# while the hue still says which way the genes moved.
-DIRECTION_CMAPS = {
-    "up":   LinearSegmentedColormap.from_list("up", ["#fbd5d4", "#f3a3a2", "#e34948", "#a82a2a"]),
-    "down": LinearSegmentedColormap.from_list("down", ["#cde2fb", "#86b6ef", "#2a78d6", "#154a8a"]),
-}
+    Red and blue always mean expression direction: red is higher, blue is lower. Sample groups and
+    PCA categories use other hues (orange, aqua, violet) so that "which group" is never confused
+    with "which direction".
+    """
+    name: str
+    surface: str            # figure background; matches the card the figure sits on
+    strong: str             # titles
+    text: str               # axis labels, ticks and secondary text
+    label: str              # gene names written on scatter plots
+    guide: str              # threshold lines
+    neutral: str            # gridlines, zero lines
+    edge: str               # network edges
+    colors: dict            # "up", "down", "ns"
+    groups: tuple           # the two sample groups on the heatmap
+    categories: tuple       # PCA categories; three at most, validated all-pairs
+    other: str              # categories folded into "Other", size-legend markers
+    diverging: object       # heatmap z-scores: two hues with a neutral midpoint
+    sequential: dict        # per-direction significance ramps for the dot plot
+
+    @property
+    def rc(self):
+        """matplotlib settings that give every figure this palette's background and text."""
+        return {"figure.facecolor": self.surface, "axes.facecolor": self.surface,
+                "savefig.facecolor": self.surface, "text.color": self.strong,
+                "axes.labelcolor": self.strong, "axes.edgecolor": self.text,
+                "xtick.color": self.text, "ytick.color": self.text,
+                "xtick.labelcolor": self.strong, "ytick.labelcolor": self.strong}
+
+
+def _ramp(name, colours):
+    return LinearSegmentedColormap.from_list(name, colours)
+
+
+LIGHT = Palette(
+    name="light", surface="#ffffff", strong="#15151c", text="#52514e", label="#2c3e50",
+    guide="#7f8c8d", neutral="#f0efec", edge="#c9c9d2",
+    colors={"up": "#e34948", "down": "#2a78d6", "ns": "#c3c2b7"},
+    groups=("#eb6834", "#1baf7a"),
+    categories=("#eb6834", "#1baf7a", "#4a3aa7"),
+    other="#b9b9c4",
+    # Light arms darken toward the extremes: more contrast against white means more extreme
+    diverging=_ramp("expression-light", ["#104281", "#2a78d6", "#9ec5f4", "#f0efec",
+                                         "#f3a3a2", "#e34948", "#8c2322"]),
+    sequential={"up": _ramp("up-light", ["#fbd5d4", "#f3a3a2", "#e34948", "#a82a2a"]),
+                "down": _ramp("down-light", ["#cde2fb", "#86b6ef", "#2a78d6", "#154a8a"])},
+)
+
+DARK = Palette(
+    name="dark", surface="#24242b", strong="#ececf1", text="#a9a9b6", label="#d6d6de",
+    guide="#6b6b78", neutral="#34343d", edge="#4a4a56",
+    colors={"up": "#e66767", "down": "#3987e5", "ns": "#4b4b55"},
+    groups=("#d95926", "#199e70"),
+    categories=("#d95926", "#199e70", "#9085e9"),
+    other="#5d5d68",
+    # Dark arms brighten toward the extremes, for the same reason in reverse; the midpoint is a
+    # dark neutral so an average value reads as nothing against the dark card
+    diverging=_ramp("expression-dark", ["#a6cbf6", "#3987e5", "#1f4a80", "#383840",
+                                        "#7a2a2e", "#e66767", "#f7b3b2"]),
+    sequential={"up": _ramp("up-dark", ["#4a2226", "#9c3a3c", "#e66767", "#f7b3b2"]),
+                "down": _ramp("down-dark", ["#1a2c45", "#25589a", "#3987e5", "#a6cbf6"])},
+)
+
+PALETTES = {"light": LIGHT, "dark": DARK}
+
+# The palette for the figure being drawn right now. A ContextVar rather than a plain global, so
+# two requests drawing at the same time can never see each other's theme.
+_ACTIVE = contextvars.ContextVar("palette", default=LIGHT)
+
+# pyplot and matplotlib's rcParams are process-wide and not thread-safe, and Flask serves requests
+# on several threads, so figures are drawn one at a time.
+_RENDER_LOCK = threading.Lock()
+
+
+def _pal():
+    return _ACTIVE.get()
+
+
+def themed(draw):
+    """Let a figure function be called with theme="light" or theme="dark"."""
+    @functools.wraps(draw)
+    def wrapper(*args, theme="light", **kwargs):
+        palette = PALETTES.get(theme, LIGHT)
+        token = _ACTIVE.set(palette)
+        try:
+            with _RENDER_LOCK, plt.rc_context(palette.rc):
+                return draw(*args, **kwargs)
+        finally:
+            _ACTIVE.reset(token)
+    return wrapper
+
+
 DIRECTION_LABELS = {"up": "Higher in {a}", "down": "Lower in {a}"}
 
 # Enrichment figures are drawn at the width they are displayed at (roughly the 700-800px card in
@@ -63,9 +150,10 @@ def _label_points(ax, candidates, limit):
             continue
         placed.append((x, y))
         ax.annotate(row["gene"], (row["log2FoldChange"], row["_y"]), fontsize=7,
-                    xytext=(4, 3), textcoords="offset points", color="#2c3e50")
+                    xytext=(4, 3), textcoords="offset points", color=_pal().label)
 
 
+@themed
 def volcano(table, group_a, group_b, padj_cutoff=0.05, lfc_cutoff=1.0, label_top=MAX_LABELS):
     """Volcano plot: log2 fold change against -log10 adjusted p-value.
 
@@ -80,12 +168,12 @@ def volcano(table, group_a, group_b, padj_cutoff=0.05, lfc_cutoff=1.0, label_top
     for regulation in ("ns", "down", "up"):                 # grey first so colours sit on top
         subset = data[data["regulation"] == regulation]
         ax.scatter(subset["log2FoldChange"], subset["_y"], s=9, alpha=0.65,
-                   c=COLORS[regulation], edgecolors="none",
+                   c=_pal().colors[regulation], edgecolors="none",
                    label=f"{regulation} ({len(subset):,})" if regulation != "ns" else f"not significant ({len(subset):,})")
 
-    ax.axhline(-np.log10(padj_cutoff), color="#7f8c8d", lw=0.8, ls="--")
+    ax.axhline(-np.log10(padj_cutoff), color=_pal().guide, lw=0.8, ls="--")
     for x in (-lfc_cutoff, lfc_cutoff):
-        ax.axvline(x, color="#7f8c8d", lw=0.8, ls="--")
+        ax.axvline(x, color=_pal().guide, lw=0.8, ls="--")
 
     _label_points(ax, data[data["regulation"] != "ns"], label_top)
 
@@ -100,6 +188,7 @@ def volcano(table, group_a, group_b, padj_cutoff=0.05, lfc_cutoff=1.0, label_top
     return _to_png(fig)
 
 
+@themed
 def ma_plot(table, group_a, group_b, lfc_cutoff=1.0, label_top=MAX_LABELS):
     """MA plot: mean expression (log scale) against log2 fold change.
 
@@ -115,20 +204,20 @@ def ma_plot(table, group_a, group_b, lfc_cutoff=1.0, label_top=MAX_LABELS):
     for regulation in ("ns", "down", "up"):
         subset = data[data["regulation"] == regulation]
         ax.scatter(subset["_x"], subset["log2FoldChange"], s=9, alpha=0.6,
-                   c=COLORS[regulation], edgecolors="none",
+                   c=_pal().colors[regulation], edgecolors="none",
                    label=f"{regulation} ({len(subset):,})" if regulation != "ns"
                    else f"not significant ({len(subset):,})")
 
-    ax.axhline(0, color="#52514e", lw=0.9)
+    ax.axhline(0, color=_pal().text, lw=0.9)
     for y in (-lfc_cutoff, lfc_cutoff):
-        ax.axhline(y, color="#7f8c8d", lw=0.8, ls="--")
+        ax.axhline(y, color=_pal().guide, lw=0.8, ls="--")
 
     # Running median of the fold change: should hug zero if there is no intensity bias
     if len(data) > 200:
         ordered = data.sort_values("_x")
         window = max(51, len(ordered) // 40)
         trend = ordered["log2FoldChange"].rolling(window, center=True, min_periods=window // 3).median()
-        ax.plot(ordered["_x"], trend, color="#15151c", lw=1.4, label="running median")
+        ax.plot(ordered["_x"], trend, color=_pal().strong, lw=1.4, label="running median")
 
     # Label the strongest hits, reusing the volcano's collision rule
     labelled = data[data["regulation"] != "ns"].rename(columns={"_x": "_plotx"})
@@ -159,17 +248,14 @@ def _label_points_xy(ax, candidates, x, y, limit):
             continue
         placed.append((px, py))
         ax.annotate(row["gene"], (row[x], row[y]), fontsize=7,
-                    xytext=(4, 3), textcoords="offset points", color="#2c3e50")
+                    xytext=(4, 3), textcoords="offset points", color=_pal().label)
 
 
-# Categorical colours for the PCA. Red and blue are kept for expression direction, so identity
-# uses orange, aqua and violet - validated for colour-blind separation across all pairs, which a
-# scatter needs. Beyond three categories the rest fold into "Other" rather than inventing hues.
-PCA_COLORS = ["#eb6834", "#1baf7a", "#4a3aa7"]
-PCA_OTHER = "#b9b9c4"
+# Marker shapes give PCA groups a second cue besides colour.
 PCA_MARKERS = ["o", "s", "^", "D"]       # shape as well as colour, so identity never rests on colour
 
 
+@themed
 def pca_plot(pca, variance, labels, title, method=""):
     """Samples on the first two principal components, coloured by a metadata column.
 
@@ -177,7 +263,7 @@ def pca_plot(pca, variance, labels, title, method=""):
     """
     labels = labels.reindex(pca.index).fillna("missing").astype(str)
     counts = labels.value_counts()
-    shown = list(counts.index[:len(PCA_COLORS)])
+    shown = list(counts.index[:len(_pal().categories)])
     folded = [c for c in counts.index if c not in shown]
     groups = [(name, [name]) for name in shown]
     if folded:
@@ -186,26 +272,27 @@ def pca_plot(pca, variance, labels, title, method=""):
     fig, ax = plt.subplots(figsize=(7.5, 6))
     for i, (name, members) in enumerate(groups):
         mask = labels.isin(members)
-        colour = PCA_COLORS[i] if i < len(PCA_COLORS) else PCA_OTHER
+        colour = _pal().categories[i] if i < len(_pal().categories) else _pal().other
         ax.scatter(pca.loc[mask, "PC1"], pca.loc[mask, "PC2"], s=58, c=colour,
                    marker=PCA_MARKERS[i % len(PCA_MARKERS)],
-                   edgecolors="white", linewidths=1.2, alpha=0.92, zorder=3,
+                   edgecolors=_pal().surface, linewidths=1.2, alpha=0.92, zorder=3,
                    label=f"{name}  (n={int(mask.sum())})")
 
-    ax.axhline(0, color=NEUTRAL, lw=0.9, zorder=0)
-    ax.axvline(0, color=NEUTRAL, lw=0.9, zorder=0)
+    ax.axhline(0, color=_pal().neutral, lw=0.9, zorder=0)
+    ax.axvline(0, color=_pal().neutral, lw=0.9, zorder=0)
     ax.set_xlabel(f"PC1  ({variance[0] * 100:.1f}% of variance)")
     ax.set_ylabel(f"PC2  ({variance[1] * 100:.1f}% of variance)")
     ax.set_title(title, fontsize=12, pad=26 + 12 * ((len(groups) - 1) // 2))
     ax.legend(loc="lower left", bbox_to_anchor=(0, 1.01), ncol=2, fontsize=8,
               frameon=False, borderaxespad=0, handletextpad=0.4)
     if method:
-        ax.text(1, -0.12, method, transform=ax.transAxes, ha="right", fontsize=7, color=TEXT)
+        ax.text(1, -0.12, method, transform=ax.transAxes, ha="right", fontsize=7, color=_pal().text)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
     return _to_png(fig)
 
 
+@themed
 def heatmap(normalized, table, conditions, group_a, group_b, top_n=30):
     """Clustered heatmap of the most significant genes.
 
@@ -245,24 +332,24 @@ def heatmap(normalized, table, conditions, group_a, group_b, top_n=30):
     counts = {group_a: order.count(group_a), group_b: 0}
     group_index = [0 if conditions[s] == group_a else 1 for s in order]
     bar_ax.imshow([group_index], aspect="auto", interpolation="nearest",
-                  cmap=LinearSegmentedColormap.from_list("groups", GROUP_COLORS, N=2))
+                  cmap=LinearSegmentedColormap.from_list("groups", _pal().groups, N=2))
     bar_ax.set_axis_off()
-    bar_ax.legend(handles=[Patch(facecolor=GROUP_COLORS[0], label=group_a),
-                           Patch(facecolor=GROUP_COLORS[1], label=group_b)],
+    bar_ax.legend(handles=[Patch(facecolor=_pal().groups[0], label=group_a),
+                           Patch(facecolor=_pal().groups[1], label=group_b)],
                   loc="lower left", bbox_to_anchor=(0, 1.4), ncol=2, fontsize=8,
                   frameon=False, borderaxespad=0)
 
     image = ax.imshow(z.to_numpy(), aspect="auto", interpolation="nearest",
-                      cmap=EXPRESSION_CMAP, vmin=-limit, vmax=limit)
-    ax.set_yticks(range(len(z)), z.index, fontsize=7, color=TEXT)
+                      cmap=_pal().diverging, vmin=-limit, vmax=limit)
+    ax.set_yticks(range(len(z)), z.index, fontsize=7, color=_pal().text)
     ax.set_xticks([])
-    ax.set_xlabel(f"{len(order)} samples, grouped by condition", fontsize=8, color=TEXT)
+    ax.set_xlabel(f"{len(order)} samples, grouped by condition", fontsize=8, color=_pal().text)
     for spine in ax.spines.values():
         spine.set_visible(False)
 
     bar = fig.colorbar(image, ax=[bar_ax, ax], fraction=0.035, pad=0.02)
-    bar.set_label("expression relative to the gene's mean (z-score)", fontsize=8, color=TEXT)
-    bar.ax.tick_params(labelsize=7, colors=TEXT)
+    bar.set_label("expression relative to the gene's mean (z-score)", fontsize=8, color=_pal().text)
+    bar.ax.tick_params(labelsize=7, colors=_pal().text)
     bar.outline.set_visible(False)
     return _to_png(fig)
 
@@ -308,11 +395,12 @@ def _split_directions(terms, top_n):
 
 def _no_data(message):
     fig, ax = plt.subplots(figsize=(7, 2))
-    ax.text(0.5, 0.5, message, ha="center", va="center", fontsize=10, color=TEXT)
+    ax.text(0.5, 0.5, message, ha="center", va="center", fontsize=10, color=_pal().text)
     ax.set_axis_off()
     return _to_png(fig)
 
 
+@themed
 def enrichment_dot(terms, group_a, group_b, top_n=10):
     """clusterProfiler-style dot plot, one panel per direction."""
     groups = _split_directions(terms, top_n)
@@ -335,12 +423,12 @@ def enrichment_dot(terms, group_a, group_b, top_n=10):
         # Dot area in points^2, scaled so the smallest term is still visible
         span = max(sizes) or 1
         areas = [40 + 260 * (s / span) for s in sizes]
-        dots = ax.scatter(ratios, list(y), s=areas, c=scores, cmap=DIRECTION_CMAPS[direction],
-                          edgecolors="white", linewidths=0.8, zorder=3)
+        dots = ax.scatter(ratios, list(y), s=areas, c=scores, cmap=_pal().sequential[direction],
+                          edgecolors=_pal().surface, linewidths=0.8, zorder=3)
 
-        ax.set_yticks(list(y), [_wrap(t.name, width=32) for t in items], fontsize=9, color=TEXT)
-        ax.tick_params(axis="x", labelsize=9, colors=TEXT)
-        ax.grid(axis="x", color=NEUTRAL, linewidth=0.8, zorder=0)
+        ax.set_yticks(list(y), [_wrap(t.name, width=32) for t in items], fontsize=9, color=_pal().text)
+        ax.tick_params(axis="x", labelsize=9, colors=_pal().text)
+        ax.grid(axis="x", color=_pal().neutral, linewidth=0.8, zorder=0)
         ax.set_axisbelow(True)
         ax.set_title(DIRECTION_LABELS[direction].format(a=group_a), fontsize=11, loc="left", pad=8)
         ax.margins(x=0.16, y=0.12)
@@ -348,22 +436,23 @@ def enrichment_dot(terms, group_a, group_b, top_n=10):
             spine.set_visible(False)
 
         bar = fig.colorbar(dots, ax=ax, fraction=0.03, pad=0.015)
-        bar.set_label("$-$log$_{10}$ adjusted p", fontsize=8, color=TEXT)
-        bar.ax.tick_params(labelsize=7, colors=TEXT)
+        bar.set_label("$-$log$_{10}$ adjusted p", fontsize=8, color=_pal().text)
+        bar.ax.tick_params(labelsize=7, colors=_pal().text)
         bar.outline.set_visible(False)
 
         # Legend for dot size: smallest and largest term in this panel
         for count in sorted({min(sizes), max(sizes)}):
-            ax.scatter([], [], s=40 + 260 * (count / span), c="#b9b9c4",
-                       edgecolors="white", linewidths=0.8, label=f"{count} genes")
+            ax.scatter([], [], s=40 + 260 * (count / span), c=_pal().other,
+                       edgecolors=_pal().surface, linewidths=0.8, label=f"{count} genes")
         ax.legend(loc="lower right", fontsize=7, frameon=False, labelspacing=1.1,
                   borderpad=0.6, handletextpad=0.9)
 
-    axes[-1].set_xlabel("gene ratio  (term genes found / genes submitted)", fontsize=9, color=TEXT)
+    axes[-1].set_xlabel("gene ratio  (term genes found / genes submitted)", fontsize=9, color=_pal().text)
     fig.tight_layout()
     return _to_png(fig)
 
 
+@themed
 def enrichment_bar(terms, group_a, group_b, top_n=10):
     """Bar plot ranked by significance, one panel per direction."""
     groups = _split_directions(terms, top_n)
@@ -380,16 +469,16 @@ def enrichment_bar(terms, group_a, group_b, top_n=10):
         items = list(reversed(items))
         scores = [-np.log10(max(t.p_value, 1e-300)) for t in items]
         bars = ax.barh(range(len(items)), scores, height=0.62,
-                       color=COLORS[direction], zorder=3)
+                       color=_pal().colors[direction], zorder=3)
 
         for rect, term in zip(bars, items):
             ax.text(rect.get_width() + max(scores) * 0.015, rect.get_y() + rect.get_height() / 2,
                     f"{term.intersection_size}/{term.term_size}", va="center",
-                    fontsize=7, color=TEXT)
+                    fontsize=7, color=_pal().text)
 
-        ax.set_yticks(range(len(items)), [_wrap(t.name, width=32) for t in items], fontsize=9, color=TEXT)
-        ax.tick_params(axis="x", labelsize=9, colors=TEXT)
-        ax.grid(axis="x", color=NEUTRAL, linewidth=0.8, zorder=0)
+        ax.set_yticks(range(len(items)), [_wrap(t.name, width=32) for t in items], fontsize=9, color=_pal().text)
+        ax.tick_params(axis="x", labelsize=9, colors=_pal().text)
+        ax.grid(axis="x", color=_pal().neutral, linewidth=0.8, zorder=0)
         ax.set_axisbelow(True)
         ax.set_title(DIRECTION_LABELS[direction].format(a=group_a), fontsize=11, loc="left", pad=8)
         ax.margins(x=0.14)
@@ -397,7 +486,7 @@ def enrichment_bar(terms, group_a, group_b, top_n=10):
             spine.set_visible(False)
 
     axes[-1].set_xlabel("$-$log$_{10}$ adjusted p-value   (labels show genes found / term size)",
-                        fontsize=8, color=TEXT)
+                        fontsize=8, color=_pal().text)
     fig.tight_layout()
     return _to_png(fig)
 
@@ -504,6 +593,7 @@ def _separate(pos, half_w, half_h, offset=None, iterations=500):
     return pos
 
 
+@themed
 def enrichment_network(terms, group_a, group_b, top_n=12, min_overlap=0.2):
     """Enrichment map (emapplot): pathways that share genes are drawn connected.
 
@@ -556,7 +646,7 @@ def enrichment_network(terms, group_a, group_b, top_n=12, min_overlap=0.2):
         for j in range(i + 1, n):
             if weights[i, j]:
                 ax.plot([pos[i, 0], pos[j, 0]], [pos[i, 1], pos[j, 1]],
-                        color="#c9c9d2", linewidth=0.6 + 3.0 * weights[i, j] / strongest,
+                        color=_pal().edge, linewidth=0.6 + 3.0 * weights[i, j] / strongest,
                         zorder=1, alpha=0.85, solid_capstyle="round")
 
     handles = []
@@ -564,7 +654,7 @@ def enrichment_network(terms, group_a, group_b, top_n=12, min_overlap=0.2):
         index = [i for i, t in enumerate(chosen) if t.direction == direction]
         if index:
             handles.append(ax.scatter(pos[index, 0], pos[index, 1], s=areas[index],
-                                      c=COLORS[direction], edgecolors="white", linewidths=1.4,
+                                      c=_pal().colors[direction], edgecolors=_pal().surface, linewidths=1.4,
                                       zorder=2, alpha=0.92,
                                       label=DIRECTION_LABELS[direction].format(a=group_a)))
 
@@ -572,13 +662,13 @@ def enrichment_network(terms, group_a, group_b, top_n=12, min_overlap=0.2):
         # A soft white backing keeps edges that pass behind a label from striking through it
         ax.annotate(label, (pos[i, 0], pos[i, 1]), fontsize=LABEL_FONT, ha="center", va="top",
                     xytext=(0, -(np.sqrt(areas[i] / np.pi) + LABEL_GAP)), textcoords="offset points",
-                    color=TEXT, zorder=3, linespacing=1.1,
-                    bbox={"boxstyle": "round,pad=0.12", "fc": "white", "ec": "none", "alpha": 0.8})
+                    color=_pal().text, zorder=3, linespacing=1.1,
+                    bbox={"boxstyle": "round,pad=0.12", "fc": _pal().surface, "ec": "none", "alpha": 0.8})
 
     fig.text(0.012, 1 - 12 / (height + header), "Pathways connected where they share genes",
-             fontsize=10, color="#15151c", va="top")
+             fontsize=10, color=_pal().strong, va="top")
     fig.text(0.012, 1 - 28 / (height + header),
-             "line width = gene overlap   ·   dot size = genes found", fontsize=8, color=TEXT, va="top")
+             "line width = gene overlap   ·   dot size = genes found", fontsize=8, color=_pal().text, va="top")
     fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.99, 1 - 6 / (height + header)),
                fontsize=8, frameon=False, markerscale=0.5, ncol=len(handles))
     return _to_png(fig)

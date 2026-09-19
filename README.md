@@ -11,6 +11,8 @@ gene list without writing any code.
 
 ![The app's interface: step list, upload panel and live dataset statistics](docs/interface.png)
 
+![The same interface in dark mode, with the figures redrawn in a dark palette](docs/interface-dark.png)
+
 ![Volcano plot of metastatic vs primary pancreatic tumours](docs/volcano.png)
 
 ![Clustered heatmap showing liver genes high in metastases and pancreatic genes high in primary tumours](docs/heatmap.png)
@@ -135,6 +137,12 @@ instructed to raise it — which it does unprompted in the generated summary.
    `enrichplot` so the figures are familiar from the literature.
 5. **Interpret** the top genes with PubMed abstracts and an AI summary that cites the PMIDs it used.
 
+**Light and dark mode.** The toggle beside the help button switches themes, and the choice is
+remembered; with no choice made, the app follows your operating system. The figures are redrawn in
+a dark palette too, rather than left as white rectangles — each palette has its own colour steps,
+checked for colour-blind separation and contrast against its own background. Downloaded figures are
+always light, since they usually end up in a paper or slide deck.
+
 ## Privacy
 
 Uploaded counts and sample names stay in the server process on your own machine. They are never
@@ -175,7 +183,7 @@ rnaseq/
 templates/, static/     single-page interface, plain JavaScript
 demo_data/              committed 60-sample subset of GSE205154
 scripts/                how the demo subset was built
-tests/                  104 tests, including a biology sanity check
+tests/                  118 tests, including a biology sanity check
 ```
 
 [`WALKTHROUGH.md`](WALKTHROUGH.md) explains how the pieces fit together and why the trickier parts

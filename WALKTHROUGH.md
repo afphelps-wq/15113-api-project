@@ -19,7 +19,7 @@ know nothing about the web:
 | `rnaseq/ncbi.py` | Search PubMed and parse the abstracts |
 | `rnaseq/llm.py` | Build the prompt and call OpenAI |
 
-The benefit is testability: 104 tests exercise these modules directly, with no HTTP server and no
+The benefit is testability: 118 tests exercise these modules directly, with no HTTP server and no
 network. The only network calls in the whole project are in `enrichment.py`, `ncbi.py` and `llm.py`.
 
 ## 1. Reading the files (`io_utils.py`)
@@ -375,6 +375,42 @@ front-end JavaScript exposes the key to every visitor who opens developer tools.
 small set of Markdown rules and turns PMIDs into PubMed links. Gene names from the user's file go
 through `textContent`, never `innerHTML`. Both are untrusted input in the security sense, and a gene
 named `<script>` should never execute.
+
+## 9. Light and dark themes
+
+Dark mode touches both halves of the app, because the page is styled in CSS but the figures are
+PNGs drawn on the server.
+
+**The page.** Every colour in `style.css` is a custom property. Light values sit on `:root`; dark
+values are declared twice, once under `:root[data-theme="dark"]` for the toggle and once inside
+`@media (prefers-color-scheme: dark)` for the operating-system setting, guarded by
+`:not([data-theme="light"])` so an explicit choice wins in both directions. The choice is stored in
+`localStorage`, and a few lines of script in `<head>` apply it before the page paints, so there is
+no flash of the wrong theme on load. Storage is wrapped in `try`, because it can be unavailable
+(private windows, blocked site data); the page then simply follows the OS.
+
+**The figures.** A white PNG on a dark page is a glaring rectangle, and inverting colours would wreck
+their meaning, so `plots.py` has two `Palette` objects. Dark mode is not a flip of light mode: each
+palette has its own steps, and both were run through a colour-blind and contrast validator against
+the surface they are drawn on (`#ffffff` and `#24242b`, which is also the dark card colour in CSS, so
+figures sit flush in their cards). Red and blue still mean up and down; sample groups still use
+orange, aqua and violet. The diverging heatmap ramp reverses its logic: in light mode extremes are
+*darker* than the midpoint, in dark mode they are *brighter*, because in both cases the extreme
+values should have the most contrast against the background.
+
+**How a figure picks its palette.** Every public figure function is wrapped by `@themed`, which adds
+a `theme=` argument. Two process-wide things had to be handled carefully:
+
+- The active palette lives in a `ContextVar`, not a global, so two requests drawing at the same time
+  each see their own theme.
+- matplotlib's `rcParams` (used for backgrounds and text colours) *are* global, and pyplot is not
+  thread-safe, while Flask serves requests on several threads. Drawing therefore happens under a
+  lock. That also fixed a latent risk that predated dark mode: two figures rendered at once could
+  have corrupted each other. A test renders light and dark figures on eight threads at once and
+  checks each gets its own background.
+
+The routes read `?theme=` and ignore values they don't recognise. Downloads (`?download=1`) always
+come back light, since a saved figure is usually headed for a paper or slide.
 
 ## Where to look first
 

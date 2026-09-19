@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RNA-seq Explorer</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script>
+  /* Apply a saved theme before the page paints, so it never flashes the wrong colours.
+     With nothing saved, the stylesheet follows the operating system's setting. */
+  try {
+    const saved = localStorage.getItem("theme");
+    if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
+  } catch (e) { /* storage unavailable: the OS setting applies */ }
+</script>
 </head>
 <body>
 
@@ -14,7 +22,11 @@
   <aside class="sidebar">
     <div class="brand">
       <span class="wordmark">RNA<em>seq</em></span>
-      <button class="icon-btn" id="help-btn" type="button" aria-label="About this app" title="About this app">?</button>
+      <div class="brand-actions">
+        <button class="icon-btn" id="theme-btn" type="button" aria-label="Toggle dark mode"
+                aria-pressed="false"></button>
+        <button class="icon-btn" id="help-btn" type="button" aria-label="About this app" title="About this app">?</button>
+      </div>
     </div>
 
     <nav class="nav" aria-label="Analysis steps">

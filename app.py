@@ -207,7 +207,7 @@ def download_volcano(token):
         raise ValidationError("Run the analysis before downloading the figure.")
     result, cutoffs = session["result"], session["cutoffs"]
     png = plots.volcano(session["table"], result.group_a, result.group_b,
-                        cutoffs["padj"], cutoffs["lfc"])
+                        cutoffs["padj"], cutoffs["lfc"], theme=_theme())
     name = f"volcano_{result.group_a}_vs_{result.group_b}.png".replace(" ", "_")
     return send_file(_as_stream(png), mimetype="image/png",
                      as_attachment=request.args.get("download") == "1", download_name=name)
@@ -219,7 +219,8 @@ def download_ma(token):
     if "table" not in session:
         raise ValidationError("Run the analysis before downloading the figure.")
     result, cutoffs = session["result"], session["cutoffs"]
-    png = plots.ma_plot(session["table"], result.group_a, result.group_b, cutoffs["lfc"])
+    png = plots.ma_plot(session["table"], result.group_a, result.group_b, cutoffs["lfc"],
+                        theme=_theme())
     name = f"MA_{result.group_a}_vs_{result.group_b}.png".replace(" ", "_")
     return send_file(_as_stream(png), mimetype="image/png",
                      as_attachment=request.args.get("download") == "1", download_name=name)
@@ -239,7 +240,8 @@ def download_pca(token):
         labels, heading = session["meta"][color_by].astype("string"), f"Coloured by {color_by}"
     else:
         raise ValidationError(f"'{color_by}' is not a column in the metadata.")
-    png = plots.pca_plot(result.pca, result.pca_variance, labels, heading, result.pca_method)
+    png = plots.pca_plot(result.pca, result.pca_variance, labels, heading, result.pca_method,
+                         theme=_theme())
     name = f"PCA_{result.group_a}_vs_{result.group_b}_by_{color_by}.png".replace(" ", "_")
     return send_file(_as_stream(png), mimetype="image/png",
                      as_attachment=request.args.get("download") == "1", download_name=name)
@@ -261,7 +263,8 @@ def download_pathway_figure(token):
         raise ValidationError(f"Unknown figure type '{kind}'.")
     result = session["result"]
     top_n = max(3, min(int(request.args.get("terms", 10)), 20))
-    png = PATHWAY_FIGURES[kind](terms, result.group_a, result.group_b, top_n=top_n)
+    png = PATHWAY_FIGURES[kind](terms, result.group_a, result.group_b, top_n=top_n,
+                                theme=_theme())
     name = f"{kind}_{result.group_a}_vs_{result.group_b}.png".replace(" ", "_")
     return send_file(_as_stream(png), mimetype="image/png",
                      as_attachment=request.args.get("download") == "1", download_name=name)
@@ -277,12 +280,21 @@ def download_heatmap(token):
     significant = session["table"][session["table"]["regulation"] != "ns"]
     try:
         png = plots.heatmap(result.normalized, significant if len(significant) >= 5 else session["table"],
-                            result.conditions, result.group_a, result.group_b, top_n=top_n)
+                            result.conditions, result.group_a, result.group_b, top_n=top_n, theme=_theme())
     except ValueError as exc:
         raise ValidationError(str(exc)) from exc
     name = f"heatmap_{result.group_a}_vs_{result.group_b}.png".replace(" ", "_")
     return send_file(_as_stream(png), mimetype="image/png",
                      as_attachment=request.args.get("download") == "1", download_name=name)
+
+
+def _theme():
+    """Which palette to draw with. Downloads are always light: a figure saved from the app is
+    usually headed for a paper or slide, where a dark background is rarely wanted."""
+    if request.args.get("download") == "1":
+        return "light"
+    theme = request.args.get("theme", "light")
+    return theme if theme in plots.PALETTES else "light"
 
 
 def _as_stream(data):

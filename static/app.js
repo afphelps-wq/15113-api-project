@@ -256,7 +256,7 @@ const FIGURES = {
 };
 
 function figureUrl(name) {
-  return `/api/figure/${state.session}/${FIGURES[name].url()}t=${state.stamp}`;
+  return `/api/figure/${state.session}/${FIGURES[name].url()}theme=${currentTheme()}&t=${state.stamp}`;
 }
 
 function showFigure(name) {
@@ -348,7 +348,7 @@ function refreshPathwayFigure() {
   if (state.pathwayView === "table") return;
   const terms = $("pathway-terms").value;
   const url = `/api/figure/${state.session}/pathways.png` +
-    `?kind=${state.pathwayView || "dot"}&terms=${terms}&t=${state.stamp}`;
+    `?kind=${state.pathwayView || "dot"}&terms=${terms}&theme=${currentTheme()}&t=${state.stamp}`;
   $("pathway-figure").src = url;
   $("download-pathway-figure").href = `${url}&download=1`;
 }
@@ -470,6 +470,60 @@ $("interpret-btn").onclick = async () => {
     busy(false);
   }
 };
+
+/* ---------- theme ---------------------------------------------------------- */
+
+/* The figures are drawn on the server, so switching theme also means asking for new images in
+   the matching palette. With no saved choice, the page follows the operating system. */
+const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+const ICONS = {
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+       'stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/>' +
+       '<path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2' +
+       'M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+};
+
+function currentTheme() {
+  return document.documentElement.dataset.theme || (systemDark.matches ? "dark" : "light");
+}
+
+function syncThemeButton() {
+  const dark = currentTheme() === "dark";
+  const button = $("theme-btn");
+  button.innerHTML = dark ? ICONS.sun : ICONS.moon;       // shows the mode you would switch to
+  button.title = dark ? "Switch to light mode" : "Switch to dark mode";
+  button.setAttribute("aria-pressed", String(dark));
+}
+
+/** Redraw whichever figures are on screen in the new palette; hidden ones redraw when opened. */
+function refreshFiguresForTheme() {
+  if (!state.session || !state.stamp) return;
+  if (typeof FIGURES !== "undefined") {
+    for (const name of Object.keys(FIGURES)) delete $(name).dataset.loaded;
+    if (state.figure) showFigure(state.figure);
+  }
+  if ($("pathway-figure").getAttribute("src")) refreshPathwayFigure();
+}
+
+$("theme-btn").onclick = () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("theme", next); } catch (e) { /* not remembered, still applied */ }
+  syncThemeButton();
+  refreshFiguresForTheme();
+};
+
+systemDark.addEventListener("change", () => {
+  if (document.documentElement.dataset.theme) return;       // an explicit choice wins
+  syncThemeButton();
+  refreshFiguresForTheme();
+});
+
+syncThemeButton();
 
 /* ---------- about ---------------------------------------------------------- */
 
