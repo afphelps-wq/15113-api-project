@@ -41,7 +41,13 @@ from the Flask backend, never from the browser, so the API key is never exposed 
 
 ## API keys
 
-Two keys, one required and one optional. **Never commit either one** — `.env` is listed in
+**Most of the app runs with no key at all.** Uploading data, differential expression, all four
+figures, the pathway enrichment and its figures, and the PubMed literature search all work with an
+empty `.env` — PubMed and g:Profiler are open APIs. Only the final step, the AI-written summary of
+those results, needs an OpenAI key; without one it shows a message saying so and still lists the
+PubMed articles it found.
+
+Neither key is needed to see the analysis. **Never commit either one** — `.env` is listed in
 `.gitignore` and must stay that way.
 
 | Key | Required? | Where to get it | Cost |
