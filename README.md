@@ -83,9 +83,15 @@ cp .env.example .env               # paste your OpenAI key into .env
 python app.py                      # then open http://127.0.0.1:5000
 ```
 
+**Use `127.0.0.1`, not `localhost`.** On macOS, AirPlay Receiver also listens on port 5000, so
+`http://localhost:5000` returns a blank "403 Forbidden" page from AirPlay instead of this app. If
+that happens, either use `http://127.0.0.1:5000` or turn AirPlay Receiver off in System Settings →
+General → AirDrop & Handoff.
+
 In the browser, upload `demo_data/demo_counts.csv` and `demo_data/demo_metadata.csv`, group the
-samples by `tumor_type`, and compare `Met` against `Primary`. The analysis takes about 10 seconds and
-the literature step about 20 seconds.
+samples by `tumor_type`, and compare `Met` against `Primary`. On a recent laptop the analysis takes
+about 15 seconds, the pathway step about 6 seconds, and the literature and AI step about 20 seconds.
+The full 289-sample series takes about 18 seconds to analyse.
 
 To run the tests: `python -m pytest`
 
@@ -150,8 +156,10 @@ always light, since they usually end up in a paper or slide deck.
 
 ## Privacy
 
-Uploaded counts and sample names stay in the server process on your own machine. They are never
-written to disk and never sent to an external service. PubMed and g:Profiler receive only gene
+Uploaded counts and sample names stay on your own machine and are never sent to an external
+service. They are held in the server process, not saved: the only thing that touches the disk is the
+temporary file the web server (Werkzeug) spools an upload larger than 500 KB into while it is being
+received, which it deletes as soon as the request finishes. PubMed and g:Profiler receive only gene
 symbols; OpenAI additionally receives fold changes, adjusted p-values, the enriched pathway names
 and the retrieved abstracts. `build_payload()` in `rnaseq/llm.py` is the single place the OpenAI
 request is assembled, and `tests/test_literature.py` asserts that sample identifiers and raw counts
@@ -169,6 +177,14 @@ cannot appear in it.
   statistics come from g:Profiler, not from clusterProfiler's own enrichment.
 - **Human-focused.** Pathway enrichment has a human/mouse selector, and the PubMed search uses gene
   symbols as written, so mouse data should work — but it has only been tested on human data.
+- **One analysis at a time, in one browser tab.** The app keeps the last few uploads in memory and
+  has no accounts; it is meant to be run locally by one person. Running a second comparison replaces
+  the first, and the Pathways panel keeps showing the previous comparison's results until you press
+  **Find enriched pathways** again.
+- **It trusts the files you give it.** Group names from your metadata are shown as written, so only
+  open metadata files you trust.
+- **Development server.** `python app.py` runs Flask's development server, which is right for local
+  use but should not be exposed to a network.
 - **The AI summary is a starting point, not a result.** It reads only the abstracts retrieved for
   that run, automated PubMed searches return some irrelevant papers (short symbols like `HP` and
   `TF` collide with common abbreviations), and every claim needs checking against the linked
